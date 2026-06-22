@@ -1,0 +1,188 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global safety net (Default Close)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // ID Validation to guard against ID Poisoning / Resource Exhaustion
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Checking system admin roles - checked from /users collection
+    function isAdmin() {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Helper to validate DailyReport fields
+    function isValidDailyReport(data) {
+      return data.date is string &&
+        data.date.size() <= 20 &&
+        data.submittedBy is string &&
+        data.submittedBy.size() <= 100 &&
+        data.submittedAt is string &&
+        data.status is string &&
+        (data.status == 'draft' || data.status == 'submitted' || data.status == 'approved') &&
+        data.items is list;
+    }
+
+    // Helper to validate Meeting fields
+    function isValidMeeting(data) {
+      return data.id is string &&
+        data.title is string &&
+        data.title.size() <= 200 &&
+        data.dateTime is string &&
+        data.venue is string &&
+        data.venue.size() <= 200 &&
+        data.chairperson is string &&
+        data.secretary is string &&
+        data.status is string &&
+        (data.status == 'scheduled' || data.status == 'ongoing' || data.status == 'completed' || data.status == 'cancelled');
+    }
+
+    // Helper to validate Notification fields
+    function isValidNotification(data) {
+      return data.id is string &&
+        data.title is string &&
+        data.title.size() <= 200 &&
+        data.content is string &&
+        data.timestamp is string &&
+        data.type is string &&
+        (data.type == 'meeting' || data.type == 'report' || data.type == 'system' || data.type == 'alert' || data.type == 'task' || data.type == 'update') &&
+        data.read is bool;
+    }
+
+    // Helper to validate User fields
+    function isValidUser(data) {
+      return data.id is string &&
+        data.name is string &&
+        data.name.size() <= 100 &&
+        data.role is string &&
+        data.email is string &&
+        data.departmentName is string;
+    }
+
+    // Helper to validate Department fields
+    function isValidDepartment(data) {
+      return data.id is string &&
+        data.name is string &&
+        data.name.size() <= 200 &&
+        data.code is string &&
+        data.code.size() <= 50;
+    }
+
+    // Helper to validate AuditLog fields
+    function isValidAuditLog(data) {
+      return data.id is string &&
+        data.actor is string &&
+        data.action is string &&
+        data.details is string &&
+        data.timestamp is string;
+    }
+
+    // Helper to validate Procedure fields
+    function isValidProcedure(data) {
+      return data.id is string &&
+        data.name is string &&
+        data.name.size() <= 200 &&
+        data.category is string;
+    }
+
+    // Helper to validate SystemSettings fields
+    function isValidSystemSettings(data) {
+      return data.themeColor is string &&
+        data.bgStyle is string &&
+        data.systemTitle is string &&
+        data.systemTitle.size() <= 200;
+    }
+
+    // Helper to validate WorkReport fields
+    function isValidWorkReport(data) {
+      return data.id is string &&
+        data.title is string &&
+        data.title.size() <= 200 &&
+        data.content is string &&
+        data.category is string &&
+        (data.category == 'report' || data.category == 'suggestion' || data.category == 'request') &&
+        data.departmentName is string &&
+        data.submittedBy is string &&
+        data.submittedById is string &&
+        data.status is string &&
+        (data.status == 'pending' || data.status == 'reviewed' || data.status == 'approved' || data.status == 'rejected' || data.status == 'processing');
+    }
+
+    // 2. Collection Route Mapping & Protections
+
+    match /reports/{reportId} {
+      allow read: if true;
+      allow create, update: if isValidId(reportId) && isValidDailyReport(incoming());
+      allow delete: if true;
+    }
+
+    match /meetings/{meetingId} {
+      allow read: if true;
+      allow create, update: if isValidId(meetingId) && isValidMeeting(incoming());
+      allow delete: if true;
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if true;
+      allow create, update: if isValidId(notificationId) && isValidNotification(incoming());
+      allow delete: if true;
+    }
+
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if isValidId(userId) && isValidUser(incoming());
+      allow delete: if true;
+    }
+
+    match /departments/{departmentId} {
+      allow read: if true;
+      allow create, update: if isValidId(departmentId) && isValidDepartment(incoming());
+      allow delete: if true;
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if true;
+      allow create, update: if isValidId(logId) && isValidAuditLog(incoming());
+      allow delete: if true;
+    }
+
+    match /procedures/{procedureId} {
+      allow read: if true;
+      allow create, update: if isValidId(procedureId) && isValidProcedure(incoming());
+      allow delete: if true;
+    }
+
+    match /settings/{settingsId} {
+      allow read: if true;
+      allow create, update: if isValidId(settingsId) && isValidSystemSettings(incoming());
+      allow delete: if true;
+    }
+
+    match /workReports/{reportId} {
+      allow read: if true;
+      allow create, update: if isValidId(reportId) && isValidWorkReport(incoming());
+      allow delete: if true;
+    }
+  }
+}

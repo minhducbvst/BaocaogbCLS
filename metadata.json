@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Báo cáo Giao ban Cận lâm sàng",
+  "description": "Hệ thống báo cáo giao ban khoa Cận lâm sàng trực quan, quản lý lịch họp, ghi chú số, tự động hóa biên bản bằng AI và thống kê dữ liệu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

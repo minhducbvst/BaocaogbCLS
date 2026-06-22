@@ -1,0 +1,2229 @@
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { DailyReport, ReportItem, User, CategoryKey } from '../types';
+import { CATEGORIES, USERS } from '../data';
+import { Save, CheckCircle, FilePenLine, Lock, ShieldAlert, Calendar, Eye, Database, Printer, FileDown, UploadCloud, DownloadCloud, RefreshCw, Settings } from 'lucide-react';
+import { formatDateToDDMMYYYY } from '../utils/date';
+import * as XLSX from 'xlsx';
+
+interface ClinicalReportTableProps {
+  reports: DailyReport[];
+  activeDate: string;
+  setActiveDate: (date: string) => void;
+  currentUser: User;
+  onSaveReport: (report: DailyReport) => Promise<void>;
+  onApproveReport: (date: string) => Promise<void>;
+  onBulkSaveReports?: (imported: DailyReport[]) => Promise<void>;
+  procedures: Omit<ReportItem, 'bh' | 'nd'>[];
+  onRefreshData?: () => Promise<void>;
+}
+
+export default function ClinicalReportTable({
+  reports,
+  activeDate,
+  setActiveDate,
+  currentUser,
+  onSaveReport,
+  onApproveReport,
+  onBulkSaveReports,
+  procedures,
+  onRefreshData
+}: ClinicalReportTableProps) {
+  // Find or initialize report for the active date
+  const [currentReport, setCurrentReport] = useState<DailyReport | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [prevActiveDate, setPrevActiveDate] = useState(activeDate);
+
+  // Google Sheets Integration State
+  const [googleAccessToken, setGoogleAccessToken] = useState(() => localStorage.getItem('google_access_token') || '');
+  const [googleSpreadsheetUrl, setGoogleSpreadsheetUrl] = useState(() => localStorage.getItem('google_spreadsheet_url') || 'https://docs.google.com/spreadsheets/d/1n7yQQmninnDTVNtIZqCzUEiAI1jRHSj4VTr7pVs3KMM/edit?usp=sharing');
+  const [googleClientId, setGoogleClientId] = useState(() => localStorage.getItem('google_client_id') || '1067215171120-g7a7fge4vbe050m3oabm896v1k6g6m2f.apps.googleusercontent.com');
+  const [isSyncingSheets, setIsSyncingSheets] = useState(false);
+  const [isPullingSheets, setIsPullingSheets] = useState(false);
+  const [showSheetsConfig, setShowSheetsConfig] = useState(false);
+  const [sheetsSyncMessage, setSheetsSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [confirmSheetSync, setConfirmSheetSync] = useState<{ syncAllMonth: boolean } | null>(null);
+  const [confirmSheetPull, setConfirmSheetPull] = useState<{ pullAllMonth: boolean } | null>(null);
+
+  useEffect(() => {
+    // Parse Google OAuth access token from window.location.hash
+    if (window.location.hash) {
+      const hash = window.location.hash.substring(1);
+      const params = new URLSearchParams(hash);
+      const token = params.get('access_token');
+      if (token) {
+        setGoogleAccessToken(token);
+        localStorage.setItem('google_access_token', token);
+        setShowSheetsConfig(true);
+        // Clear hash from address bar
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        setSheetsSyncMessage({ type: 'success', text: 'Kết nối tài khoản Google thành công! Bạn có thể thực hiện đồng bộ ngay.' });
+      }
+    }
+  }, []);
+
+  const handleGoogleConnect = () => {
+    if (!googleClientId.trim()) {
+      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng cung cấp Google OAuth Client ID trong phần cấu hình nâng cao.' });
+      return;
+    }
+    const redirectUri = window.location.href.split('#')[0]; // Current page minus hash
+    const scope = 'https://www.googleapis.com/auth/spreadsheets';
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleClientId.trim()}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scope)}`;
+    
+    window.location.href = authUrl;
+  };
+
+  const handleSyncToSheets = (syncAllMonth: boolean) => {
+    if (!googleSpreadsheetUrl.trim()) {
+      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng nhập đường dẫn liên kết Google Sheets.' });
+      return;
+    }
+    if (!googleAccessToken.trim()) {
+      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng kết nối tài khoản Google hoặc nhập Access Token trước.' });
+      setShowSheetsConfig(true);
+      return;
+    }
+
+    setConfirmSheetSync({ syncAllMonth });
+  };
+
+  const proceedSyncToSheets = async (syncAllMonth: boolean) => {
+    setIsSyncingSheets(true);
+    setSheetsSyncMessage(null);
+
+    // Save configuration settings to localStorage
+    localStorage.setItem('google_access_token', googleAccessToken);
+    localStorage.setItem('google_spreadsheet_url', googleSpreadsheetUrl);
+
+    try {
+      const d = new Date(activeDate);
+      const month = d.getMonth() + 1; // 1-12
+      const year = d.getFullYear();
+
+      const response = await fetch('/api/sheets/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          month,
+          year,
+          accessToken: googleAccessToken,
+          spreadsheetUrl: googleSpreadsheetUrl,
+          syncAllMonth,
+          date: activeDate,
+          activeUser: currentUser.name
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setSheetsSyncMessage({
+          type: 'success',
+          text: data.message || 'Đồng bộ Google Sheets thành công!'
+        });
+      } else {
+        setSheetsSyncMessage({
+          type: 'error',
+          text: data.error || 'Lỗi đồng bộ Google Sheets.'
+        });
+      }
+    } catch (err: any) {
+      setSheetsSyncMessage({
+        type: 'error',
+        text: 'Lỗi kết nối mạng: Không thể liên lạc được với máy chủ.'
+      });
+    } finally {
+      setIsSyncingSheets(false);
+    }
+  };
+
+  const handlePullFromSheets = (pullAllMonth: boolean) => {
+    if (!googleSpreadsheetUrl.trim()) {
+      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng nhập đường dẫn liên kết Google Sheets.' });
+      return;
+    }
+    if (!googleAccessToken.trim()) {
+      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng kết nối tài khoản Google hoặc nhập Access Token trước.' });
+      setShowSheetsConfig(true);
+      return;
+    }
+
+    setConfirmSheetPull({ pullAllMonth });
+  };
+
+  const proceedPullFromSheets = async (pullAllMonth: boolean) => {
+    setIsPullingSheets(true);
+    setSheetsSyncMessage(null);
+
+    // Save configuration settings to localStorage
+    localStorage.setItem('google_access_token', googleAccessToken);
+    localStorage.setItem('google_spreadsheet_url', googleSpreadsheetUrl);
+
+    try {
+      const d = new Date(activeDate);
+      const month = d.getMonth() + 1; // 1-12
+      const year = d.getFullYear();
+
+      const response = await fetch('/api/sheets/pull', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          month,
+          year,
+          accessToken: googleAccessToken,
+          spreadsheetUrl: googleSpreadsheetUrl,
+          pullAllMonth,
+          date: activeDate,
+          activeUser: currentUser.name
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setSheetsSyncMessage({
+          type: 'success',
+          text: data.message || 'Tải dữ liệu từ Google Sheets thành công!'
+        });
+        if (onRefreshData) {
+          await onRefreshData();
+        }
+      } else {
+        setSheetsSyncMessage({
+          type: 'error',
+          text: data.error || 'Lỗi tải dữ liệu từ Google Sheets.'
+        });
+      }
+    } catch (err: any) {
+      setSheetsSyncMessage({
+        type: 'error',
+        text: 'Lỗi kết nối mạng: Không thể liên lạc được với máy chủ.'
+      });
+    } finally {
+      setIsPullingSheets(false);
+    }
+  };
+
+  const [draftSavedCheckpoint, setDraftSavedCheckpoint] = useState<ReportItem[] | null>(null);
+  const [isDraftSavingActive, setIsDraftSavingActive] = useState(false);
+
+  const handleDraftCheckpointClick = async () => {
+    if (!currentReport || isSaving) return;
+    
+    setIsSaving(true);
+    try {
+      if (!isDraftSavingActive) {
+        // 1. Save checkpoint and auto-save current edited items
+        const checkpointItems = JSON.parse(JSON.stringify(currentReport.items));
+        setDraftSavedCheckpoint(checkpointItems);
+        
+        const reportToSave = {
+          ...currentReport,
+          submittedBy: currentUser.name,
+          status: 'draft' as any,
+        };
+        await onSaveReport(reportToSave);
+        setIsDraftSavingActive(true);
+      } else {
+        // 2. Revert to checkpoint, save reverted data, and clear checkpoint
+        if (draftSavedCheckpoint) {
+          const revertedItems = JSON.parse(JSON.stringify(draftSavedCheckpoint));
+          const revertedReport = {
+            ...currentReport,
+            items: revertedItems,
+            submittedBy: currentUser.name,
+            status: 'draft' as any,
+          };
+          
+          // First update local state
+          setCurrentReport(revertedReport);
+          
+          // Save reverted data to backend
+          await onSaveReport(revertedReport);
+        }
+        setIsDraftSavingActive(false);
+        setDraftSavedCheckpoint(null);
+      }
+    } catch (err) {
+      console.error("Lỗi xử lý nháp:", err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isExcelImportModalOpen, setIsExcelImportModalOpen] = useState(false);
+  
+  // Excel import helper states
+  const [importLogs, setImportLogs] = useState<string[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [parsedReports, setParsedReports] = useState<DailyReport[]>([]);
+  const [isImportingProgress, setIsImportingProgress] = useState(false);
+  const [exportStartDate, setExportStartDate] = useState(() => {
+    const d = new Date(activeDate);
+    if (isNaN(d.getTime())) return '2026-03-01';
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${yyyy}-${mm}-01`;
+  });
+  const [exportEndDate, setExportEndDate] = useState(activeDate);
+
+  const previewItems = (() => {
+    const filtered = reports.filter(r => r.date >= exportStartDate && r.date <= exportEndDate);
+    const sums: { [id: string]: { bh: number; nd: number } } = {};
+    procedures.forEach(t => {
+      sums[t.id] = { bh: 0, nd: 0 };
+    });
+    filtered.forEach(r => {
+      r.items.forEach(item => {
+        if (sums[item.id]) {
+          sums[item.id].bh += (item.bh || 0);
+          sums[item.id].nd += (item.nd || 0);
+        }
+      });
+    });
+    return procedures.map(it => ({
+      ...it,
+      bh: sums[it.id]?.bh || 0,
+      nd: sums[it.id]?.nd || 0,
+    }));
+  })();
+
+  const handleExportCSV = () => {
+    let csvContent = '\uFEFF'; 
+    csvContent += 'BÁO CÁO TỔNG HỢP CHỈ TIÊU KỸ THUẬT Y KHOA\n';
+    csvContent += `Khoa Cận Lâm Sàng - Bệnh Viện Đa Khoa Executive\n`;
+    csvContent += `Khoảng thời gian: ${formatDateToDDMMYYYY(exportStartDate)} đến ${formatDateToDDMMYYYY(exportEndDate)}\n\n`;
+    csvContent += 'PHÒNG BAN/CHUYÊN KHOA,CHỈ TIÊU KỸ THUẬT,BẢO HIỂM (BH),NGOÀI DỊCH VỤ (ND),TỔNG CỘNG\n';
+    let grandBh = 0;
+    let grandNd = 0;
+    
+    CATEGORIES.forEach(category => {
+      const catItems = previewItems.filter(it => it.category === category.key);
+      let catBh = 0;
+      let catNd = 0;
+      catItems.forEach(it => {
+        const total = it.bh + it.nd;
+        catBh += it.bh;
+        catNd += it.nd;
+        const escapedName = it.name.replace(/"/g, '""');
+        csvContent += `"${category.name}","${escapedName}",${it.bh},${it.nd},${total}\n`;
+      });
+      grandBh += catBh;
+      grandNd += catNd;
+      csvContent += `"${category.name} (TỔNG)","TỔNG PHÒNG BAN",${catBh},${catNd},${catBh + catNd}\n`;
+    });
+    csvContent += `"TỔNG CỘNG TOÀN KHOA","TỔNG CỘNG",${grandBh},${grandNd},${grandBh + grandNd}\n`;
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Bao_cao_giao_ban_tong_hop_${exportStartDate}_den_${exportEndDate}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const getUserCategory = (user: typeof currentUser): CategoryKey | null => {
+    if (user.role === 'admin' || user.role === 'truongKhoa') return null;
+    
+    // Check if role is directly one of the active categories
+    const role = user.role;
+    if (role === 'sieuAm' || role === 'noiSoi' || role === 'xQuang' || role === 'dienTimLHN' || role === 'xetNghiem') {
+      return role as CategoryKey;
+    }
+    
+    // Fallback to mapping based on department name
+    const dept = (user.departmentName || '').toLowerCase();
+    if (dept.includes('siêu âm')) return 'sieuAm';
+    if (dept.includes('nội soi')) return 'noiSoi';
+    if (dept.includes('x-quang') || dept.includes('x quang')) return 'xQuang';
+    if (dept.includes('điện tim')) return 'dienTimLHN';
+    if (dept.includes('xét nghiệm')) return 'xetNghiem';
+    
+    return null;
+  };
+
+  const [selectedCategory, setSelectedCategory] = useState<CategoryKey | 'all'>(() => {
+    const userCat = getUserCategory(currentUser);
+    if (userCat) {
+      return userCat;
+    }
+    return 'all';
+  });
+
+  // Keep selected tab in sync if user changes
+  useEffect(() => {
+    const userCat = getUserCategory(currentUser);
+    if (userCat) {
+      setSelectedCategory(userCat);
+    } else if (currentUser.role === 'admin' || currentUser.role === 'truongKhoa') {
+      setSelectedCategory('all');
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    const dateSwitched = activeDate !== prevActiveDate;
+    if (dateSwitched) {
+      setPrevActiveDate(activeDate);
+      setIsEditing(false);
+      setIsDraftSavingActive(false);
+      setDraftSavedCheckpoint(null);
+    }
+
+    if (!isEditing || dateSwitched) {
+      const existingReport = reports.find(r => r.date === activeDate);
+      if (existingReport) {
+        // Create a deep copy and merge with active procedures to reflect additions/deletions seamlessly
+        const mergedItems = procedures.map(p => {
+          const found = existingReport.items.find(item => item.id === p.id);
+          return {
+            ...p,
+            bh: found ? found.bh || 0 : 0,
+            nd: found ? found.nd || 0 : 0,
+          };
+        });
+        setCurrentReport({
+          ...existingReport,
+          items: mergedItems
+        });
+      } else {
+        // Create empty report template
+        setCurrentReport({
+          date: activeDate,
+          status: 'draft',
+          submittedBy: currentUser.name,
+          submittedAt: '',
+          items: procedures.map(p => ({ ...p, bh: 0, nd: 0 }))
+        });
+      }
+    }
+  }, [activeDate, reports, currentUser, isEditing, prevActiveDate, procedures]);
+
+  if (!currentReport) return null;
+
+  // Key stats calculations
+  const calculateCategoryTotals = (category: CategoryKey) => {
+    let bhSum = 0;
+    let ndSum = 0;
+    currentReport.items.forEach(item => {
+      if (item.category === category) {
+        bhSum += Number(item.bh) || 0;
+        ndSum += Number(item.nd) || 0;
+      }
+    });
+    return { bh: bhSum, nd: ndSum, total: bhSum + ndSum };
+  };
+
+  const calculateGrandTotals = () => {
+    let bhSum = 0;
+    let ndSum = 0;
+    currentReport.items.forEach(item => {
+      bhSum += Number(item.bh) || 0;
+      ndSum += Number(item.nd) || 0;
+    });
+    return { bh: bhSum, nd: ndSum, total: bhSum + ndSum };
+  };
+
+  // Check if current user has edit permission for a category
+  const hasPermissionForCategory = (category: CategoryKey) => {
+    if (currentUser.role === 'admin' || currentUser.role === 'truongKhoa') return true;
+    const userCat = getUserCategory(currentUser);
+    return userCat === category;
+  };
+
+  // Handles input revisions
+  const handleInputChange = (itemId: string, type: 'bh' | 'nd', val: string) => {
+    if (!currentReport) return;
+    const numericValue = val === '' ? 0 : Math.max(0, parseInt(val, 10));
+    
+    const updatedItems = currentReport.items.map(item => {
+      if (item.id === itemId) {
+        return {
+          ...item,
+          [type]: numericValue
+        };
+      }
+      return item;
+    });
+
+    setCurrentReport({
+      ...currentReport,
+      items: updatedItems
+    });
+  };
+
+  // Triggers save
+  const handleSave = async () => {
+    if (!currentReport) return;
+    setIsSaving(true);
+    try {
+      const reportToSave = {
+        ...currentReport,
+        submittedBy: currentUser.name,
+        status: (currentUser.role === 'admin' || currentUser.role === 'truongKhoa') ? 'approved' : 'submitted' as any,
+        approvedBy: (currentUser.role === 'admin' || currentUser.role === 'truongKhoa') ? currentUser.name : undefined
+      };
+      await onSaveReport(reportToSave);
+      setIsEditing(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleApprove = async () => {
+    setIsSaving(true);
+    try {
+      await onApproveReport(currentReport.date);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Handle Excel Import File and parsing
+  const handleExcelImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportError(null);
+    setImportLogs([]);
+    setParsedReports([]);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstream = evt.target?.result;
+        const wb = XLSX.read(bstream, { type: 'binary', cellDates: true });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json<any>(ws, { header: 1 });
+
+        if (data.length < 2) {
+          throw new Error('File excel trống hoặc không chứa tiêu đề và dữ liệu hợp lệ.');
+        }
+
+        // Identify headers
+        const headers = data[0].map((h: any) => String(h || '').trim().toLowerCase());
+        
+        // Find column indexes
+        let dateColIdx = headers.findIndex((h: string) => h.includes('ngày') || h.includes('date') || h.includes('ngay'));
+        let itemColIdx = headers.findIndex((h: string) => h.includes('chỉ tiêu') || h.includes('tên') || h.includes('mã') || h.includes('procedure') || h.includes('name') || h.includes('id'));
+        let bhColIdx = headers.findIndex((h: string) => h === 'bh' || h.includes('bảo hiểm') || h.includes('bao hiem'));
+        let ndColIdx = headers.findIndex((h: string) => h === 'nd' || h.includes('dịch vụ') || h.includes('dich vu') || h.includes('ngoài dịch vụ') || h.includes('nhân dân') || h.includes('ngoai dich vu'));
+
+        if (dateColIdx === -1) dateColIdx = 0;
+        if (itemColIdx === -1) itemColIdx = 1;
+        if (bhColIdx === -1) bhColIdx = 2;
+        if (ndColIdx === -1) ndColIdx = 3;
+
+        const logs: string[] = [];
+        logs.push(`🔍 Hệ thống đã tự động nhận diện cột:`);
+        logs.push(`- Cột Ngày: Cột ${dateColIdx + 1} ("${data[0][dateColIdx] || 'N/A'}")`);
+        logs.push(`- Cột Kỹ thuật: Cột ${itemColIdx + 1} ("${data[0][itemColIdx] || 'N/A'}")`);
+        logs.push(`- Cột Bảo hiểm (BH): Cột ${bhColIdx + 1} ("${data[0][bhColIdx] || 'N/A'}")`);
+        logs.push(`- Cột Dịch vụ (ND): Cột ${ndColIdx + 1} ("${data[0][ndColIdx] || 'N/A'}")`);
+
+        const reportsByDate: { [date: string]: { [itemId: string]: { bh: number; nd: number } } } = {};
+
+        for (let rowIdx = 1; rowIdx < data.length; rowIdx++) {
+          const row = data[rowIdx];
+          if (!row || row.length === 0) continue;
+
+          let rawDate = row[dateColIdx];
+          if (rawDate === undefined || rawDate === null || rawDate === '') continue;
+
+          let dateStr = '';
+          if (rawDate instanceof Date) {
+            const yyyy = rawDate.getFullYear();
+            const mm = String(rawDate.getMonth() + 1).padStart(2, '0');
+            const dd = String(rawDate.getDate()).padStart(2, '0');
+            dateStr = `${yyyy}-${mm}-${dd}`;
+          } else {
+            const rawStr = String(rawDate).trim();
+            if (!rawStr) continue;
+
+            if (/^\d{4}-\d{2}-\d{2}/.test(rawStr)) {
+              dateStr = rawStr.split(' ')[0];
+            } else if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/.test(rawStr)) {
+              const parts = rawStr.split(/[\/\-]/);
+              const dd = parts[0].padStart(2, '0');
+              const mm = parts[1].padStart(2, '0');
+              const yyyy = parts[2].substring(0, 4);
+              dateStr = `${yyyy}-${mm}-${dd}`;
+            } else {
+              const dParsed = new Date(rawStr);
+              if (!isNaN(dParsed.getTime())) {
+                const yyyy = dParsed.getFullYear();
+                const mm = String(dParsed.getMonth() + 1).padStart(2, '0');
+                const dd = String(dParsed.getDate()).padStart(2, '0');
+                dateStr = `${yyyy}-${mm}-${dd}`;
+              } else {
+                logs.push(`⚠️ Không xử lý được định dạng ngày tại dòng ${rowIdx + 1}: "${rawStr}". Bỏ qua.`);
+                continue;
+              }
+            }
+          }
+
+          const rawItem = String(row[itemColIdx] || '').trim();
+          if (!rawItem) continue;
+
+          // Fuzzy search clinical procedure
+          const matchedItem = procedures.find(t => 
+            t.id.toLowerCase() === rawItem.toLowerCase() || 
+            t.name.toLowerCase() === rawItem.toLowerCase() ||
+            t.name.toLowerCase().includes(rawItem.toLowerCase()) ||
+            rawItem.toLowerCase().includes(t.name.toLowerCase())
+          );
+
+          if (!matchedItem) {
+            logs.push(`⚠️ Dòng ${rowIdx + 1}: Diễn giải "${rawItem}" không tìm được danh mục kỹ thuật khớp.`);
+            continue;
+          }
+
+          const rawBh = parseInt(String(row[bhColIdx] || '0').replace(/[^\d\-]/g, ''), 10);
+          const rawNd = parseInt(String(row[ndColIdx] || '0').replace(/[^\d\-]/g, ''), 10);
+          const bh = isNaN(rawBh) ? 0 : Math.max(0, rawBh);
+          const nd = isNaN(rawNd) ? 0 : Math.max(0, rawNd);
+
+          if (!reportsByDate[dateStr]) {
+            reportsByDate[dateStr] = {};
+          }
+
+          if (!reportsByDate[dateStr][matchedItem.id]) {
+            reportsByDate[dateStr][matchedItem.id] = { bh: 0, nd: 0 };
+          }
+
+          reportsByDate[dateStr][matchedItem.id].bh += bh;
+          reportsByDate[dateStr][matchedItem.id].nd += nd;
+        }
+
+        const finalReports: DailyReport[] = Object.keys(reportsByDate).map(d => {
+          const itemValues = reportsByDate[d];
+          const itemsList: ReportItem[] = procedures.map(t => {
+            const vals = itemValues[t.id] || { bh: 0, nd: 0 };
+            return {
+              id: t.id,
+              name: t.name,
+              category: t.category as any,
+              bh: vals.bh,
+              nd: vals.nd
+            };
+          });
+
+          return {
+            date: d,
+            status: 'approved',
+            submittedBy: currentUser.name,
+            submittedAt: new Date().toISOString(),
+            approvedBy: currentUser.name,
+            items: itemsList
+          };
+        });
+
+        if (finalReports.length === 0) {
+          throw new Error('Không phân tích được bất kỳ dòng dữ liệu hợp lệ nào.');
+        }
+
+        logs.push(`✅ Phân tích thành công! Phát hiện số liệu của ${finalReports.length} ngày giao ban:`);
+        finalReports.sort((a,b) => a.date.localeCompare(b.date)).forEach(r => {
+          const totalBh = r.items.reduce((s,i) => s + i.bh, 0);
+          const totalNd = r.items.reduce((s,i) => s + i.nd, 0);
+          logs.push(`  • Ngày ${formatDateToDDMMYYYY(r.date)}: ${totalBh} BH, ${totalNd} ND (Tổng cộng ${totalBh + totalNd} ca)`);
+        });
+
+        setParsedReports(finalReports);
+        setImportLogs(logs);
+      } catch (err: any) {
+        setImportError(err.message || 'Lỗi đọc tệp tin.');
+        setImportLogs(prev => [...prev, `❌ Thất bại: ${err.message || 'Định dạng tệp hỏng'}`]);
+      }
+    };
+
+    reader.readAsBinaryString(file);
+  };
+
+  const handleDownloadExcelTemplate = () => {
+    // Generate a perfect xlsx template
+    const wsData = [
+      ["Ngày báo cáo (YYYY-MM-DD)*", "Chỉ tiêu kỹ thuật chuẩn (Tên hoặc ID)*", "Số ca Bảo hiểm (BH)", "Số ca Dịch vụ (ND)"],
+      ["2026-03-01", "Siêu âm tim", 15, 8],
+      ["2026-03-01", "Nội soi dạ dày", 25, 12],
+      ["2026-03-01", "X quang", 50, 20],
+      ["2026-03-02", "Siêu âm tim", 10, 5],
+      ["2026-03-02", "Siêu âm mạch", 8, 3]
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    const wscols = [
+      {wch: 28},
+      {wch: 42},
+      {wch: 24},
+      {wch: 24}
+    ];
+    ws['!cols'] = wscols;
+
+    XLSX.utils.book_append_sheet(wb, ws, "Bieu_mau_kê_khai");
+    XLSX.writeFile(wb, "Bieu_mau_nhap_lieu_excel_clinics.xlsx");
+  };
+
+  const handleExecuteImport = async () => {
+    if (parsedReports.length === 0 || !onBulkSaveReports) return;
+    setIsImportingProgress(true);
+    try {
+      await onBulkSaveReports(parsedReports);
+      setIsExcelImportModalOpen(false);
+      setParsedReports([]);
+      setImportLogs([]);
+    } catch (err: any) {
+      setImportError(err.message || 'Đã xảy ra lỗi khi lưu vào cơ sở dữ liệu.');
+    } finally {
+      setIsImportingProgress(false);
+    }
+  };
+
+  const exportConsolidatedReport = (start: string, end: string, items: ReportItem[], format: 'pdf' | 'print') => {
+    const isRange = start !== end;
+    const dateFormatted = isRange 
+      ? `Từ ngày ${formatDateToDDMMYYYY(start)} đến ngày ${formatDateToDDMMYYYY(end)}`
+      : `Ngày giao ban: ${formatDateToDDMMYYYY(start)}`;
+
+    const calculateCategoryTotalsForItems = (catKey: CategoryKey) => {
+      const catItems = items.filter(it => it.category === catKey);
+      const bh = catItems.reduce((sum, it) => sum + (it.bh || 0), 0);
+      const nd = catItems.reduce((sum, it) => sum + (it.nd || 0), 0);
+      return { bh, nd, total: bh + nd };
+    };
+
+    const calculateGrandTotalsForItems = () => {
+      const bh = items.reduce((sum, it) => sum + (it.bh || 0), 0);
+      const nd = items.reduce((sum, it) => sum + (it.nd || 0), 0);
+      return { bh, nd, total: bh + nd };
+    };
+
+    const grandTotalsVal = calculateGrandTotalsForItems();
+
+    let rowsHtml = '';
+    CATEGORIES.forEach(category => {
+      const catTotals = calculateCategoryTotalsForItems(category.key);
+      const catItems = items.filter(item => item.category === category.key);
+
+      rowsHtml += `
+        <tr class="category-row">
+          <td style="text-align: left; background-color: #f8fafc; font-weight: bold; padding: 8px 10px; border: 1px solid #000000;">◆ ${category.name}</td>
+          <td colspan="3" style="text-align: left; background-color: #f8fafc; font-style: italic; color: #475569; padding: 8px 10px; border: 1px solid #000000;">
+            Bác sĩ phụ trách: ${USERS.find(u => u.role === category.key)?.name || "Bác sĩ khoa"}
+          </td>
+        </tr>
+      `;
+
+      catItems.forEach(item => {
+        const itemTotal = (item.bh || 0) + (item.nd || 0);
+        rowsHtml += `
+          <tr>
+            <td style="padding-left: 20px; border: 1px solid #000000;">${item.name}</td>
+            <td class="center font-mono" style="text-align: center; border: 1px solid #000000;">${item.bh || '-'}</td>
+            <td class="center font-mono" style="text-align: center; border: 1px solid #000000;">${item.nd || '-'}</td>
+            <td class="center font-mono" style="text-align: center; font-weight: bold; border: 1px solid #000000;">${itemTotal || '-'}</td>
+          </tr>
+        `;
+      });
+
+      rowsHtml += `
+        <tr class="total-row" style="background-color: #fafafa; font-weight: bold;">
+          <td style="text-align: right; padding-right: 15px; font-size: 10pt; color: #475569; text-transform: uppercase; border: 1px solid #000000;">TỔNG (${category.name})</td>
+          <td class="center font-mono" style="text-align: center; color: #1d4ed8; font-weight: bold; border: 1px solid #000000;">${catTotals.bh || '0'}</td>
+          <td class="center font-mono" style="text-align: center; color: #047857; font-weight: bold; border: 1px solid #000000;">${catTotals.nd || '0'}</td>
+          <td class="center font-mono" style="text-align: center; font-weight: bold; background-color: #f1f5f9; border: 1px solid #000000;">${catTotals.total || '0'}</td>
+        </tr>
+      `;
+    });
+
+    rowsHtml += `
+      <tr class="total-row" style="background-color: #e2e8f0; font-size: 11pt; font-weight: bold;">
+        <td style="text-align: left; padding-left: 10px; font-weight: bold; text-transform: uppercase; border: 1px solid #000000;">TỔNG CỘNG TOÀN KHOA CẬN LÂM SÀNG</td>
+        <td class="center font-mono" style="text-align: center; color: #1d4ed8; font-weight: bold; border: 1px solid #000000;">${grandTotalsVal.bh || '0'}</td>
+        <td class="center font-mono" style="text-align: center; color: #047857; font-weight: bold; border: 1px solid #000000;">${grandTotalsVal.nd || '0'}</td>
+        <td class="center font-mono" style="text-align: center; font-weight: bold; background-color: #cbd5e1; color: #0f172a; border: 1px solid #000000;">${grandTotalsVal.total || '0'}</td>
+      </tr>
+    `;
+
+    let stampTrungKhoa = '';
+    let stampGiamDoc = '';
+
+    const representsReport = currentReport && (!isRange && currentReport.date === start);
+    const statusText = representsReport ? currentReport.status : 'draft';
+
+    if (statusText === 'submitted' || statusText === 'approved') {
+      stampTrungKhoa = `
+        <div class="clinical-stamp-box" style="margin: 10px 0;">
+          <div class="red-stamp">
+            KHOA CẬN LÂM SÀNG<br>
+            <span style="font-size: 8pt; font-weight: normal;">BỆNH VIỆN EXECUTIVE</span><br>
+            <span style="font-size: 9pt; font-weight: bold;">★ ĐÃ XÁC NHẬN ★</span>
+          </div>
+        </div>
+      `;
+    }
+
+    if (statusText === 'approved') {
+      stampGiamDoc = `
+        <div class="clinical-stamp-box" style="margin: 10px 0;">
+          <span style="color: #e11d48; font-size: 9pt; font-weight: bold; display: block; margin-bottom: 2px;">DUYỆT Y CHÍNH THỨC</span>
+          <div class="red-stamp" style="border: 3px double #e11d48; border-radius: 50%; width: 90px; height: 90px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; font-size: 7pt; line-height: 1.2; padding: 2px;">
+            <span style="font-size: 6pt;">BỆNH VIỆN ĐA KHOA</span>
+            <span style="font-weight: bold; font-size: 8pt;">EXECUTIVE</span>
+            <span style="color: #e11d48; font-size: 6pt;">* BAN GIÁM ĐỐC *</span>
+          </div>
+        </div>
+      `;
+    }
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Báo cáo giao ban cận lâm sảng (${isRange ? `${start}_den_${end}` : start})</title>
+    <style>
+        body {
+            font-family: "Times New Roman", Times, serif;
+            font-size: 13pt;
+            line-height: 1.4;
+            color: #000000;
+            padding: 2cm;
+            margin: 0 auto;
+            background-color: #ffffff;
+        }
+        @page {
+            size: A4;
+            margin: 1.5cm;
+        }
+        @media print {
+            body {
+                padding: 0;
+                margin: 0;
+            }
+            .no-print {
+                display: none !important;
+            }
+        }
+        .header-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 25px;
+        }
+        .header-table td {
+            border: none !important;
+            padding: 2px !important;
+            vertical-align: top;
+            text-align: center;
+        }
+        .left-header {
+            width: 45%;
+            font-size: 11pt;
+            text-transform: uppercase;
+        }
+        .left-header .hospital-name {
+            font-weight: bold;
+        }
+        .left-header .department-name {
+            font-weight: bold;
+            text-decoration: underline;
+        }
+        .right-header {
+            width: 55%;
+            font-size: 11pt;
+        }
+        .right-header .national-title {
+            font-weight: bold;
+            text-transform: uppercase;
+            font-size: 11pt;
+        }
+        .right-header .national-subtitle {
+            font-weight: bold;
+            font-size: 12pt;
+        }
+        .right-header .divider {
+            margin-top: 2px;
+            letter-spacing: -1px;
+            font-weight: bold;
+        }
+        .report-title-container {
+            text-align: center;
+            margin-top: 30px;
+            margin-bottom: 25px;
+        }
+        .report-title {
+            font-size: 16pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin: 0;
+            line-height: 1.3;
+        }
+        .report-subtitle {
+            font-size: 12pt;
+            font-style: italic;
+            margin-top: 5px;
+            margin-bottom: 0;
+        }
+        .meta-info {
+            font-size: 11pt;
+            margin-bottom: 20px;
+            text-align: left;
+            padding-left: 10px;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11pt;
+            margin-bottom: 40px;
+        }
+        .data-table th, .data-table td {
+            border: 1px solid #000000;
+            padding: 6px 8px;
+            text-align: left;
+        }
+        .data-table th {
+            font-weight: bold;
+            text-align: center;
+            background-color: #f2f2f2 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .data-table td.center {
+            text-align: center;
+        }
+        .data-table td.right {
+            text-align: right;
+        }
+        .font-mono {
+            font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+        }
+        .data-table tr.category-row {
+            font-weight: bold;
+            background-color: #fcfcfc !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .data-table tr.total-row {
+            font-weight: bold;
+            background-color: #eaeaea !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .signature-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 30px;
+        }
+        .signature-table td {
+            border: none !important;
+            width: 33.33%;
+            text-align: center;
+            vertical-align: top;
+            padding: 5px !important;
+            font-size: 11pt;
+        }
+        .signature-title {
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+        .signature-name {
+            font-weight: bold;
+            margin-top: 15px;
+        }
+        .clinical-stamp-box {
+            position: relative;
+            display: inline-block;
+        }
+        .red-stamp {
+            border: 3px double #e11d48;
+            color: #d90429;
+            background: rgba(253, 244, 245, 0.5);
+            border-radius: 6px;
+            padding: 8px 15px;
+            font-weight: bold;
+            font-size: 10pt;
+            text-transform: uppercase;
+            transform: rotate(-4deg);
+            display: inline-block;
+            margin-top: 10px;
+            letter-spacing: 0.5px;
+            font-family: inherit;
+        }
+        .print-btn-bar {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            padding: 12px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            font-family: sans-serif;
+            font-size: 14px;
+        }
+        .print-btn-bar button {
+            background-color: #4f46e5;
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .print-btn-bar button:hover {
+            background-color: #4338ca;
+        }
+    </style>
+</head>
+<body>
+    <div class="print-btn-bar no-print">
+        <span>📄 Bác sĩ có thể bấm <strong>In báo cáo</strong> để lưu trực tiếp dưới dạng tệp <strong>PDF</strong> hoặc in ra giấy.</span>
+        <button onclick="window.print()">
+            In báo cáo / Lưu PDF
+        </button>
+    </div>
+
+    <!-- Hospital Standard Header -->
+    <table class="header-table">
+        <tr>
+            <td class="left-header" style="text-align: center;">
+                <div class="hospital-name">SỞ Y TẾ THÀNH PHỐ HÀ NỘI</div>
+                <div class="hospital-name" style="font-weight: bold;">BV ĐA KHOA CHẤT LƯỢNG CAO EXECUTIVE</div>
+                <div class="department-name" style="font-weight: bold; text-decoration: underline;">KHOA CẬN LÂM SÀNG</div>
+            </td>
+            <td class="right-header" style="text-align: center;">
+                <div class="national-title" style="font-weight: bold;">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
+                <div class="national-subtitle" style="font-weight: bold;">Độc lập - Tự do - Hạnh phúc</div>
+                <div class="divider">---------------</div>
+                <div style="font-size: 11pt; margin-top: 10px; font-style: italic;">
+                    Hà Nội, ngày ${new Date().getDate()} tháng ${new Date().getMonth() + 1} năm ${new Date().getFullYear()}
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    <!-- Centralized Report Title -->
+    <div class="report-title-container">
+        <h1 class="report-title">${isRange ? 'BÁO CÁO TỔNG HỢP CHỈ TIÊU KỸ THUẬT Y KHOA' : 'BÁO CÁO GIAO BAN CHỈ TIÊU KỸ THUẬT Y KHOA'}</h1>
+        <p class="report-title" style="font-size: 13pt; margin-top: 3px;">KHOA CẬN LÂM SÀNG</p>
+        <p class="report-subtitle">${dateFormatted}</p>
+    </div>
+
+    <!-- Administrative metadata -->
+    <div class="meta-info">
+        <p style="margin: 3px 0;"><strong>Yêu cầu bởi:</strong> ${currentUser.name}</p>
+        <p style="margin: 3px 0;"><strong>Hình thức báo cáo:</strong> Báo cáo số liệu giao ban ${isRange ? 'tổng hợp định kỳ' : 'chuyển ca trực hằng ngày'}</p>
+        <p style="margin: 3px 0;"><strong>Trạng thái phê chuẩn:</strong> Chữ ký điện tử nội bộ bệnh viện</p>
+    </div>
+
+    <!-- Main Table data -->
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 50%;">CHỈ TIÊU KỸ THUẬT Y KHOA KHAI BÁO</th>
+                <th style="width: 15%;">BẢO HIỂM (BH)</th>
+                <th style="width: 15%;">NGOÀI DỊCH VỤ (ND)</th>
+                <th style="width: 20%;">TỔNG CỘNG</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${rowsHtml}
+        </tbody>
+    </table>
+
+    <!-- Legal Signature Block -->
+    <table class="signature-table">
+        <tr>
+            <td>
+                <div class="signature-title">NGƯỜI LẬP BIỂU</div>
+                <div style="font-size: 9pt; font-style: italic; color: #555555; margin-top: -5px; margin-bottom: 25px;">(Ký và ghi rõ họ tên)</div>
+                <div class="signature-name" style="margin-top: 60px;">${currentUser.name}</div>
+            </td>
+            <td>
+                <div class="signature-title">TRƯỞNG KHOA CẬN LÂM SÀNG</div>
+                <div style="font-size: 9pt; font-style: italic; color: #555555; margin-top: -5px; margin-bottom: 25px;">(Ký, ghi rõ họ tên & đóng dấu)</div>
+                <div>
+                    ${stampTrungKhoa || `
+                      <div class="clinical-stamp-box" style="margin: 10px 0;">
+                        <div class="red-stamp">
+                          KHOA CẬN LÂM SÀNG<br>
+                          <span style="font-size: 8pt; font-weight: normal;">BỆNH VIỆN EXECUTIVE</span><br>
+                          <span style="font-size: 9pt; font-weight: bold;">★ BÁO CÁO TỔNG HỢP ★</span>
+                        </div>
+                      </div>
+                    `}
+                </div>
+                <div class="signature-name" style="margin-top: 15px;">TS. BS. Nguyễn Văn Trực</div>
+            </td>
+            <td>
+                <div class="signature-title">BAN GIÁM ĐỐC BỆNH VIỆN</div>
+                <div style="font-size: 9pt; font-style: italic; color: #555555; margin-top: -5px; margin-bottom: 25px;">(Phê duyệt, ký tên & đóng dấu)</div>
+                <div>
+                    ${stampGiamDoc || `
+                      <div class="clinical-stamp-box" style="margin: 10px 0;">
+                        <span style="color: #e11d48; font-size: 9pt; font-weight: bold; display: block; margin-bottom: 2px;">ỦY QUYỀN ĐIỆN TỬ</span>
+                        <div class="red-stamp" style="border: 3px double #e11d48; border-radius: 50%; width: 90px; height: 90px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; font-size: 7pt; line-height: 1.2; padding: 2px;">
+                          <span style="font-size: 6pt;">BỆNH VIỆN ĐA KHOA</span>
+                          <span style="font-weight: bold; font-size: 8pt;">EXECUTIVE</span>
+                          <span style="color: #e11d48; font-size: 6pt;">* BAN GIÁM ĐỐC *</span>
+                        </div>
+                      </div>
+                    `}
+                </div>
+                <div class="signature-name" style="margin-top: 15px;">GS. TS. Lê Hoàng Quân</div>
+            </td>
+        </tr>
+    </table>
+
+    <script>
+        ${format === 'print' ? `
+        window.onload = function() {
+            setTimeout(function() {
+                window.print();
+            }, 300);
+        };
+        ` : ''}
+    </script>
+</body>
+</html>
+    `;
+
+    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    if (format === 'pdf') {
+      link.download = `Bao_cao_giao_ban_tong_hop_${start}_den_${end}.html`;
+    } else {
+      link.download = `In_Bao_cao_giao_ban_tong_hop_${start}_den_${end}.html`;
+    }
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const exportReportToPDF = () => {
+    if (!currentReport) return;
+    exportConsolidatedReport(currentReport.date, currentReport.date, currentReport.items, 'print');
+  };
+
+  const grandTotals = calculateGrandTotals();
+
+  const filteredCategories = selectedCategory === 'all'
+    ? CATEGORIES
+    : CATEGORIES.filter(c => c.key === selectedCategory);
+
+  // Status Badge Class Selector
+  const getStatusBadge = () => {
+    switch (currentReport.status) {
+      case 'approved':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 border border-emerald-300 text-emerald-800 shadow-sm animate-pulse">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            Đã Phê Duyệt Chính Thức
+          </span>
+        );
+      case 'submitted':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-100 border border-blue-300 text-blue-800 shadow-sm">
+            <span className="w-2 h-2 rounded-full bg-blue-500" />
+            Chờ Trưởng Khoa Phê Duyệt
+          </span>
+        );
+      default:
+        if (isEditing) {
+          if (isDraftSavingActive) {
+            return (
+              <button
+                type="button"
+                onClick={handleDraftCheckpointClick}
+                disabled={isSaving}
+                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-black bg-red-600 hover:bg-red-700 text-white shadow-md active:scale-95 transition-all cursor-pointer border border-red-700"
+                title="Dữ liệu đang được lưu nháp. Nhấn để hủy!"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-white animate-spin" />
+                Đang lưu
+              </button>
+            );
+          } else {
+            return (
+              <button
+                type="button"
+                onClick={handleDraftCheckpointClick}
+                disabled={isSaving}
+                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-black bg-amber-500 hover:bg-amber-600 hover:scale-[1.03] text-white shadow-md active:scale-95 transition-all cursor-pointer border border-amber-600"
+                title="Nhấp để tự động lưu nháp dữ liệu hiện tại!"
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+                Bản Nháp
+              </button>
+            );
+          }
+        }
+
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 border border-amber-305 text-amber-800 shadow-sm">
+            <span className="w-2 h-2 rounded-full bg-amber-500" />
+            Bản Nháp
+          </span>
+        );
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-lg border border-slate-205 shadow-xs overflow-hidden space-y-4 p-4 transition-all">
+      {/* Date, status, and Excel import bar on the same line */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-150">
+        <div className="flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-indigo-605" />
+          <span className="text-xs font-extrabold text-slate-800">Chọn ngày giao ban:</span>
+          <input
+            type="date"
+            value={activeDate}
+            onChange={(e) => setActiveDate(e.target.value)}
+            className="border border-slate-205 rounded-md px-2 py-1 text-xs text-slate-800 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-550 cursor-pointer bg-slate-50 hover:bg-slate-100/50 transition"
+          />
+        </div>
+
+        {/* Report state "Bản nháp" and "Nhập Excel" on the same line */}
+        <div className="flex flex-wrap items-center gap-2 md:self-end">
+          {getStatusBadge()}
+          
+          {currentUser.role === 'admin' && (
+            <button
+              type="button"
+              onClick={() => {
+                setImportLogs([]);
+                setImportError(null);
+                setParsedReports([]);
+                setIsExcelImportModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition duration-150 shadow-xs cursor-pointer select-none"
+            >
+              <UploadCloud className="w-3.5 h-3.5" />
+              Nhập Excel 📂
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* 5. Google Sheets Integration Panel */}
+      {currentUser.role === 'admin' && (
+        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-3xs space-y-4 transition-all duration-300">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <span className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                </svg>
+              </span>
+              <div>
+                <h3 className="font-extrabold text-slate-850 dark:text-white text-xs md:text-sm tracking-tight flex items-center gap-2">
+                  Tích hợp Google Sheets nâng cao 📊
+                  {googleAccessToken ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-2 py-0.5 rounded-full font-black font-sans">
+                      ● Đã kết nối
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold">
+                      ○ Chưa kết nối
+                    </span>
+                  )}
+                </h3>
+                <p className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold uppercase tracking-wider">
+                  Đồng bộ hai chiều dữ liệu Clinis (BH & ND) giữa ứng dụng và Google Sheets
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setShowSheetsConfig(!showSheetsConfig)}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-[11px] font-bold shadow-xs flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+              >
+                <Settings className="w-3.5 h-3.5" />
+                {showSheetsConfig ? "Ẩn thiết lập" : "Thiết lập kết nối"}
+              </button>
+            </div>
+          </div>
+
+          {/* Input link Spreadsheet */}
+          <div className="space-y-1 max-w-2xl">
+            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Đường dẫn Google Sheets đồng bộ:</label>
+            <div className="relative">
+              <span className="absolute left-3 top-2 text-[11px] text-slate-400 font-mono select-none">🔗</span>
+              <input 
+                type="text"
+                value={googleSpreadsheetUrl}
+                onChange={(e) => setGoogleSpreadsheetUrl(e.target.value)}
+                placeholder="https://docs.google.com/spreadsheets/d/Spreadsheet-ID/edit"
+                className="w-full pl-8 pr-3 py-2 text-xs border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-indigo-505 focus:border-indigo-500 font-semibold font-sans shadow-3xs"
+              />
+            </div>
+          </div>
+
+          {/* Split Actions: Push and Pull */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+            
+            {/* 1. Sync UP section */}
+            <div className="bg-white dark:bg-slate-950/20 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-3xs">
+              <div className="flex items-center gap-2 border-b border-dashed border-slate-100 dark:border-slate-850 pb-2.5">
+                <span className="p-1.5 rounded bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400">
+                  <UploadCloud className="w-4 h-4" />
+                </span>
+                <div>
+                  <h4 className="font-extrabold text-xs text-indigo-750 dark:text-indigo-300 uppercase tracking-wider">📤 Đồng bộ Lên Google Sheets</h4>
+                  <p className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold">Chuyển dữ liệu Clinis ghi đè lên các cột trên Google Sheet</p>
+                </div>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSyncToSheets(false)}
+                  disabled={isSyncingSheets || isPullingSheets}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[11px] transition duration-155 shadow-3xs disabled:opacity-50 cursor-pointer text-center"
+                >
+                  {isSyncingSheets ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Đang gửi...
+                    </>
+                  ) : (
+                    <>
+                      <UploadCloud className="w-3.5 h-3.5 text-indigo-100" />
+                      Gửi Ngày: {formatDateToDDMMYYYY(activeDate)}
+                    </>
+                  )}
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => handleSyncToSheets(true)}
+                  disabled={isSyncingSheets || isPullingSheets}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white font-extrabold text-[11px] transition duration-155 shadow-3xs disabled:opacity-50 cursor-pointer text-center"
+                >
+                  {isSyncingSheets ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Đang gửi...
+                    </>
+                  ) : (
+                    <>
+                      <Calendar className="w-3.5 h-3.5 text-indigo-100" />
+                      Gửi Cả Tháng 📅
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* 2. Pull DOWN section */}
+            <div className="bg-white dark:bg-slate-950/20 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-3xs">
+              <div className="flex items-center gap-2 border-b border-dashed border-slate-100 dark:border-slate-850 pb-2.5">
+                <span className="p-1.5 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400">
+                  <DownloadCloud className="w-4 h-4" />
+                </span>
+                <div>
+                  <h4 className="font-extrabold text-xs text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">📥 Tải số liệu từ Google Sheets</h4>
+                  <p className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold">Tải số liệu từ Google Sheet nhập vào cơ sở dữ liệu</p>
+                </div>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  onClick={() => handlePullFromSheets(false)}
+                  disabled={isSyncingSheets || isPullingSheets}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] transition duration-155 shadow-3xs disabled:opacity-50 cursor-pointer text-center"
+                >
+                  {isPullingSheets ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Đang tải...
+                    </>
+                  ) : (
+                    <>
+                      <DownloadCloud className="w-3.5 h-3.5 text-emerald-100" />
+                      Tải Ngày: {formatDateToDDMMYYYY(activeDate)}
+                    </>
+                  )}
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => handlePullFromSheets(true)}
+                  disabled={isSyncingSheets || isPullingSheets}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-[11px] transition duration-155 shadow-3xs disabled:opacity-50 cursor-pointer text-center"
+                >
+                  {isPullingSheets ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Đang tải...
+                    </>
+                  ) : (
+                    <>
+                      <Calendar className="w-3.5 h-3.5 text-emerald-100" />
+                      Tải Cả Tháng 📅
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Sync message callback feedback */}
+          {sheetsSyncMessage && (
+            <div className={`p-3 rounded-lg text-xs font-bold leading-relaxed shadow-3xs border flex items-center justify-between gap-2 transition duration-200 ${
+              sheetsSyncMessage.type === 'success' 
+                ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-250/50 text-emerald-800 dark:text-emerald-400' 
+                : 'bg-rose-50 dark:bg-rose-950/20 border-rose-250/50 text-rose-800 dark:text-rose-450'
+            }`}>
+              <span>
+                {sheetsSyncMessage.type === 'success' ? '➔ ✅' : '➔ ⚠️'} {sheetsSyncMessage.text}
+              </span>
+              <button 
+                type="button" 
+                onClick={() => setSheetsSyncMessage(null)}
+                className="text-[10px] opacity-70 hover:opacity-100 select-none px-1 py-0.5 hover:bg-slate-205/50 rounded cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Advanced Credentials Config Drawer */}
+          {showSheetsConfig && (
+            <div className="border-t border-slate-200 dark:border-slate-800 pt-3.5 space-y-4 animate-slide-in">
+              {/* Explanation of 403 Error */}
+              <div className="p-3 bg-amber-50/50 dark:bg-amber-950/10 border border-amber-200/50 rounded-lg space-y-2">
+                <span className="text-[11px] font-black text-amber-800 dark:text-amber-400 block flex items-center gap-1.5 font-sans">
+                  ⚠️ GIẢI THÍCH LỖI 403 "DO NOT HAVE ACCESS TO THIS DOC/PAGE":
+                </span>
+                <p className="text-[10.5px] text-slate-650 dark:text-slate-450 leading-relaxed font-semibold">
+                  Mã kết nối (Client ID) mặc định thuộc Google Cloud của môi trường phát triển đang đặt ở trạng thái <strong className="text-amber-800 dark:text-amber-300">Thử nghiệm (Testing)</strong>. Google chỉ cho phép những tài khoản email được khai báo thủ công truy cập. Do đó khi nhấn nút kết nối, tài khoản của bạn sẽ báo lỗi 403.
+                </p>
+                <div className="pt-1 text-[10.5px] text-slate-650 dark:text-slate-450 leading-relaxed space-y-1">
+                  <p className="font-extrabold text-slate-800 dark:text-slate-350">Hãy lựa chọn một trong 2 giải pháp cực kỳ đơn giản dưới đây để đồng bộ ngay:</p>
+                </div>
+              </div>
+
+              {/* Sol 1: OAuth Playground */}
+              <div className="p-3.5 bg-indigo-50/30 dark:bg-slate-900 border border-indigo-100 dark:border-slate-800 rounded-lg space-y-3">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 font-black text-[10px] text-indigo-700 dark:text-indigo-400 mb-1.5 uppercase font-sans">
+                      Cách 1: Lấy token qua OAuth Playground (Khuyên dùng)
+                    </span>
+                    <h4 className="font-extrabold text-slate-800 dark:text-white text-xs">Không cần cấu hình, hoạt động tức thì với tài khoản bất kỳ</h4>
+                  </div>
+                  <a 
+                    href="https://developers.google.com/oauthplayground" 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-indigo-650 dark:text-indigo-400 hover:underline font-black hover:scale-105 transition"
+                  >
+                    Mở OAuth Playground 🚀
+                  </a>
+                </div>
+                
+                <ol className="list-decimal list-inside text-[10.5px] text-slate-600 dark:text-slate-400 space-y-1.5 leading-relaxed font-medium">
+                  <li>Truy cập liên kết <strong className="text-indigo-600 dark:text-indigo-400">OAuth Playground</strong> bên phải.</li>
+                  <li>Tại danh sách API bên trái (Step 1), tìm và mở rộng mục <strong className="text-slate-800 dark:text-slate-300">Google Sheets API v4</strong>.</li>
+                  <li>Tích chọn link scope: <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[10px]">https://www.googleapis.com/auth/spreadsheets</code> rồi click <strong className="text-slate-850 dark:text-slate-200">Authorize APIs</strong>.</li>
+                  <li>Đăng nhập bằng Gmail của bạn, cho phép ứng dụng truy cập.</li>
+                  <li>Ở Step 2, nhấp chuột vào nút màu xanh <strong className="text-emerald-700 dark:text-emerald-400 font-bold">"Exchange authorization code for tokens"</strong>.</li>
+                  <li>Sao chép toàn bộ dòng chữ dài trong ô <strong className="text-indigo-600 dark:text-indigo-400 font-extrabold">"Access Token"</strong> dán trực tiếp vào ô bên dưới.</li>
+                </ol>
+
+                <div className="space-y-1.5 pt-2">
+                  <label className="text-[9.5px] font-black text-slate-500 uppercase tracking-widest block">Google Access Token (Dán tại đây):</label>
+                  <textarea 
+                    rows={2}
+                    value={googleAccessToken}
+                    onChange={(e) => {
+                      setGoogleAccessToken(e.target.value);
+                      localStorage.setItem('google_access_token', e.target.value);
+                    }}
+                    placeholder="Dán mã Access Token lấy từ OAuth Playground bắt đầu bằng ya29... tại đây"
+                    className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-930 text-slate-800 dark:text-slate-200 placeholder-slate-400 p-2.5 focus:outline-hidden focus:ring-1 focus:ring-indigo-505 leading-relaxed shadow-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Sol 2: Custom Client ID */}
+              <div className="p-3.5 bg-slate-100/50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg space-y-3">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 font-black text-[10px] text-slate-700 dark:text-slate-400 uppercase font-sans">
+                  Cách 2: Sử dụng Google Client ID cá nhân
+                </span>
+                <p className="text-[10.5px] text-slate-600 dark:text-slate-400 leading-relaxed font-semibold">
+                  Tạo mã kết nối riêng của bạn để nút <strong className="text-slate-800 dark:text-slate-200 font-black">Kết nối Google Account</strong> hoạt động trực tiếp.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pb-2">
+                  <div className="md:col-span-8 space-y-1.5">
+                    <label className="text-[9.5px] font-black text-slate-500 uppercase tracking-widest block">Nhập mã Client ID Google của bạn:</label>
+                    <input 
+                      type="text"
+                      value={googleClientId}
+                      onChange={(e) => {
+                        setGoogleClientId(e.target.value);
+                        localStorage.setItem('google_client_id', e.target.value);
+                      }}
+                      placeholder="Nhập mã Client ID (dòng dài kết thúc bằng .apps.googleusercontent.com)"
+                      className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-930 text-slate-800 dark:text-slate-200 placeholder-slate-400 px-3 py-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-505 shadow-xs"
+                    />
+                  </div>
+                  <div className="md:col-span-4 self-end">
+                    <button
+                      type="button"
+                      onClick={handleGoogleConnect}
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-950 dark:bg-indigo-605 dark:hover:bg-indigo-750 text-white font-extrabold text-xs shadow-xs transition duration-150 cursor-pointer select-none"
+                    >
+                      <div className="w-3.5 h-3.5 bg-white rounded-full flex items-center justify-center p-0.5 shrink-0">
+                        <svg viewBox="0 0 48 48" className="w-full h-full">
+                          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                        </svg>
+                      </div>
+                      Kết nối Google Account ➔
+                    </button>
+                  </div>
+                </div>
+                <div className="text-[10px] text-slate-500 leading-relaxed space-y-1 font-medium bg-slate-50 dark:bg-slate-950/40 p-2.5 rounded-md border border-slate-200/50 dark:border-slate-800/50">
+                  <p className="font-extrabold text-slate-800 dark:text-slate-350">Các bước đăng ký Redirect URI trên Google Cloud Console:</p>
+                  <p>1. Tại Credentials, chọn Client ID vừa tạo hoặc tạo mới.</p>
+                  <p>2. Trong mục <strong className="text-slate-700 dark:text-slate-300">"Authorized redirect URIs"</strong>, nhấp chuột "Add URI" và thêm chính xác đường dẫn hiện tại của bạn:</p>
+                  <p className="font-mono bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-1.5 py-0.5 rounded text-[9.5px] select-all tracking-tight break-all inline-block font-black mt-1 text-indigo-600 dark:text-indigo-400">
+                    {window.location.origin}/
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Primary Data Input Button / Edit Actions placed on a line below */}
+      {(currentReport.status !== 'approved' || currentUser.role === 'admin') && (
+        <div className={`flex flex-col sm:flex-row sm:items-center gap-3 pt-1 w-full pb-2 ${isEditing ? 'justify-end' : 'justify-center'}`}>
+          {!isEditing ? (
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              className="inline-flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-xl text-white font-black text-xs md:text-sm transition-all duration-300 transform hover:scale-[1.04] active:scale-98 cursor-pointer bg-gradient-to-r from-indigo-600 via-indigo-750 to-violet-700 hover:from-indigo-500 hover:to-violet-650 animate-pulse-subtle shadow-lg w-full sm:w-auto"
+              style={{
+                boxShadow: '0 10px 25px -5px rgba(79, 70, 229, 0.5), 0 8px 16px -6px rgba(124, 58, 237, 0.4)'
+              }}
+            >
+              <FilePenLine className="w-4 h-4 text-white shrink-0 animate-bounce" />
+              {currentReport.status === 'approved' 
+                ? `Hiệu chỉnh số liệu đã DUYỆT ngày ${formatDateToDDMMYYYY(activeDate)} (Quyền Admin) 🛠️` 
+                : `Nhập số liệu chuyên môn ngày ${formatDateToDDMMYYYY(activeDate)}`}
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 flex-wrap justify-end w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditing(false);
+                  setIsDraftSavingActive(false);
+                  setDraftSavedCheckpoint(null);
+                }}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 text-xs font-bold transition cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-750 text-white font-extrabold text-xs transition disabled:opacity-50 shadow-xs cursor-pointer"
+              >
+                <Save className="w-3.5 h-3.5" />
+                {isSaving ? 'Đang lưu...' : 'Gửi báo cáo số liệu'}
+              </button>
+            </div>
+          )}
+
+          {(currentUser.role === 'admin' || currentUser.role === 'truongKhoa') && currentReport.status === 'submitted' && (
+            <button
+              type="button"
+              onClick={handleApprove}
+              disabled={isSaving}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition duration-150 disabled:opacity-50 shadow-xs cursor-pointer w-full sm:w-auto"
+            >
+              <CheckCircle className="w-3.5 h-3.5" />
+              Duyệt số liệu
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Department Selector for high productivity data declaration layout - Render only if admin or truongKhoa */}
+      {(currentUser.role === 'admin' || currentUser.role === 'truongKhoa') && (
+        <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-2.5 shadow-2xs">
+          <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">
+            Chọn Phòng ban / Chuyên khoa kê khai số liệu:
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {CATEGORIES.map((category) => {
+              const isSelected = selectedCategory === category.key;
+              return (
+                <button
+                  key={category.key}
+                  type="button"
+                  onClick={() => setSelectedCategory(category.key)}
+                  className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition cursor-pointer select-none flex items-center gap-2 ${
+                    isSelected
+                      ? 'bg-indigo-600 border-indigo-650 text-white shadow-sm font-heavy'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-indigo-200' : category.color.split(' ')[0]}`} />
+                  {isSelected ? <strong>{category.name}</strong> : category.name}
+                </button>
+              );
+            })}
+            
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('all')}
+              className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition cursor-pointer select-none flex items-center gap-2 ${
+                selectedCategory === 'all'
+                  ? 'bg-slate-900 border-slate-950 text-white shadow-sm'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <Database className="w-3.5 h-3.5" />
+              Tất cả phòng ban
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Editing rules alerting banner */}
+      {isEditing && currentUser.role !== 'admin' && currentUser.role !== 'truongKhoa' && (
+        <div className="bg-amber-50/50 border border-amber-200/60 text-amber-900 px-3 py-2 rounded-md text-[11px] leading-relaxed flex items-center gap-2 shadow-inner">
+          <ShieldAlert className="w-4 h-4 text-amber-655 flex-shrink-0 animate-bounce" />
+          <p>
+            Tài khoản phụ trách: <strong>{currentUser.name}</strong>. Phân quyền chặt chẽ: Bạn chỉ được ghi nhận số liệu phòng <strong>{currentUser.departmentName}</strong>. Khóa nhập liệu các khoa phòng khác <Lock className="w-3 h-3 inline-block" />.
+          </p>
+        </div>
+      )}
+
+      {isEditing && currentUser.role === 'admin' && currentReport.status === 'approved' && (
+        <div className="bg-rose-50 border border-rose-200/80 text-rose-955 px-3.5 py-2.5 rounded-lg text-[11px] leading-relaxed flex items-center gap-2.5 shadow-xs">
+          <ShieldAlert className="w-4 h-4 text-rose-600 flex-shrink-0 animate-bounce" />
+          <p>
+            🚨 <strong>Quyền hạn đặc biệt:</strong> Bạn đang thao tác chỉnh sửa dữ liệu của báo cáo <strong>Đã duyệt y chính thức</strong> dưới danh nghĩa <strong>Quản trị viên (Admin)</strong>. Hệ thống sẽ cập nhật trạng thái báo cáo và lưu vết thông tin kiểm toán hoạt động đầy đủ.
+          </p>
+        </div>
+      )}
+
+      {/* Spreadsheets lookalike report table - Soft neutral borders and balanced contrast */}
+      <div className="overflow-x-auto rounded-2xl border-2 border-slate-300 dark:border-slate-700 shadow-sm bg-white dark:bg-slate-950 transition-all duration-300">
+        <table className="min-w-full divide-y divide-slate-150/50 border-collapse bg-white dark:bg-slate-950">
+          {/* Header Row */}
+          <thead className="bg-slate-50/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-100 font-semibold text-xs tracking-wider border-b-2 border-slate-300">
+            <tr>
+              <th scope="col" rowSpan={2} className="px-6 py-5 text-left font-black tracking-wide text-slate-900 dark:text-white min-w-[280px] text-sm uppercase">
+                CHỈ TIÊU BÁO CÁO GIAO BAN KHOA
+              </th>
+              <th scope="col" colSpan={3} className="px-4 py-3.5 text-center border-b border-slate-250/30 font-black text-[13px] uppercase tracking-wider text-indigo-950 dark:text-indigo-200">
+                SỐ LIỆU NGÀY {currentReport?.date ? formatDateToDDMMYYYY(currentReport.date) : 'N/A'}
+              </th>
+            </tr>
+            <tr className="bg-slate-50/40 dark:bg-slate-900/50 text-slate-600 dark:text-slate-350">
+              <th scope="col" className="px-4 py-3.5 text-center min-w-[120px] text-[12px] uppercase font-black text-indigo-600 dark:text-indigo-400">Bảo Hiểm (BH)</th>
+              <th scope="col" className="px-4 py-3.5 text-center min-w-[120px] text-[12px] uppercase font-black text-emerald-600 dark:text-emerald-400">Ngoài DV (ND)</th>
+              <th scope="col" className="px-4 py-3.5 text-center min-w-[125px] text-[12px] uppercase font-black text-slate-700 dark:text-slate-300">Tổng cộng</th>
+            </tr>
+          </thead>
+
+          {/* Table Body */}
+          <tbody className="divide-y divide-slate-100/70 dark:divide-slate-800/50 bg-white dark:bg-slate-950">
+            {filteredCategories.map(category => {
+              const catTotals = calculateCategoryTotals(category.key);
+              const hasCatPermission = hasPermissionForCategory(category.key);
+              
+              // Filter report items in this category
+              const catItems = currentReport.items.filter(item => item.category === category.key);
+
+              return (
+                <React.Fragment key={category.key}>
+                  {/* Category Title Header Row */}
+                  <tr className="bg-slate-100/75 dark:bg-slate-900/45 font-bold border-y-2 border-slate-200 dark:border-slate-805">
+                    <td colSpan={4} className="px-6 py-4 text-left">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-900 dark:text-white font-black uppercase tracking-widest text-[13px] flex items-center gap-2.5">
+                          <span className="w-2 h-4 rounded bg-indigo-600 inline-block" />
+                          {category.name}
+                        </span>
+                        <span className="text-[11.5px] text-slate-600 dark:text-slate-300 font-bold bg-slate-200/70 dark:bg-slate-800 px-3 py-1 rounded-md">
+                          Bác sĩ phụ trách: <strong className="text-slate-800 dark:text-slate-100 font-extrabold">{USERS.find(u => u.role === category.key)?.name || "Bác sĩ khoa"}</strong>
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+
+                  {/* Rows inside category - High Density */}
+                  {catItems.map(item => {
+                    const rowCombined = (Number(item.bh) || 0) + (Number(item.nd) || 0);
+
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/30 transition duration-150 border-b border-slate-100/60 dark:border-slate-800/60">
+                        <td className="px-6 py-4.5 font-bold text-slate-900 dark:text-slate-100 pr-4 leading-relaxed text-[13.5px] sm:text-[14px]">
+                          {item.name}
+                        </td>
+                        
+                        {/* BH Input */}
+                        <td className="px-4 py-3 text-center">
+                          {isEditing && hasCatPermission ? (
+                            <input
+                              type="number"
+                              min="0"
+                              value={item.bh === 0 ? '' : item.bh}
+                              placeholder="0"
+                              onChange={(e) => handleInputChange(item.id, 'bh', e.target.value)}
+                              className="w-full max-w-[105px] mx-auto bg-slate-50 dark:bg-slate-905 text-slate-900 dark:text-white font-black font-mono text-center border-2 border-slate-250 dark:border-slate-800 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-slate-850 text-sm leading-none transition duration-150 shadow-3xs"
+                            />
+                          ) : (
+                            <span className="font-mono text-indigo-700 dark:text-indigo-400 font-black text-sm text-center block">
+                              {item.bh || <span className="text-slate-300 dark:text-slate-700 font-normal">-</span>}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* ND Input */}
+                        <td className="px-4 py-3 text-center">
+                          {isEditing && hasCatPermission ? (
+                            <input
+                              type="number"
+                              min="0"
+                              value={item.nd === 0 ? '' : item.nd}
+                              placeholder="0"
+                              onChange={(e) => handleInputChange(item.id, 'nd', e.target.value)}
+                              className="w-full max-w-[105px] mx-auto bg-slate-50 dark:bg-slate-905 text-slate-900 dark:text-white font-black font-mono text-center border-2 border-slate-250 dark:border-slate-800 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-slate-850 text-sm leading-none transition duration-150 shadow-3xs"
+                            />
+                          ) : (
+                            <span className="font-mono text-emerald-700 dark:text-emerald-400 font-black text-sm text-center block">
+                              {item.nd || <span className="text-slate-300 dark:text-slate-700 font-normal">-</span>}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Combined Row Sum */}
+                        <td className="px-4 py-3 text-center font-black font-mono text-slate-950 dark:text-slate-50 bg-slate-150/15 dark:bg-slate-900/10 text-sm">
+                          {rowCombined || <span className="text-slate-300 dark:text-slate-700 font-normal">-</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {/* Category Totals summary Row - High Density */}
+                  <tr className="bg-slate-100/40 dark:bg-slate-900/20 font-bold border-b border-slate-250 dark:border-slate-800 text-slate-800 dark:text-slate-200">
+                    <td className="px-6 py-3.5 text-right uppercase tracking-wider text-slate-600 dark:text-slate-400 font-black text-[11px]">
+                      TỔNG ({category.name})
+                    </td>
+                    <td className="px-4 py-3.5 text-center font-mono font-black text-indigo-700 dark:text-indigo-400 bg-indigo-50/20 dark:bg-indigo-950/20 text-sm">
+                      {catTotals.bh || '-'}
+                    </td>
+                    <td className="px-4 py-3.5 text-center font-mono font-black text-emerald-705 dark:text-emerald-400 bg-emerald-50/20 dark:bg-emerald-950/20 text-sm">
+                      {catTotals.nd || '-'}
+                    </td>
+                    <td className="px-4 py-3.5 text-center font-mono font-black text-slate-950 dark:text-white bg-slate-100/60 dark:bg-slate-900/40 text-sm">
+                      {catTotals.total || '-'}
+                    </td>
+                  </tr>
+                </React.Fragment>
+              );
+            })}
+
+            {/* GRAND TOTAL ROW */}
+            <tr className="bg-slate-900 dark:bg-indigo-950 text-white font-bold border-t-2 border-indigo-500 h-16 transition-all hover:bg-slate-950">
+              <td className="px-6 py-4 uppercase tracking-wider text-left text-white flex items-center gap-2.5 font-black text-[11.5px]">
+                <Database className="w-5 h-5 text-indigo-400 animate-pulse" />
+                TỔNG CỘNG TOÀN KHOA CẬN LÂM SÀNG
+              </td>
+              <td className="px-4 py-3 text-center font-mono font-black text-sky-305 text-sm">
+                {grandTotals.bh || '0'}
+              </td>
+              <td className="px-4 py-3 text-center font-mono font-black text-emerald-400 text-sm">
+                {grandTotals.nd || '0'}
+              </td>
+              <td className="px-4 py-3 text-center font-mono font-black bg-slate-950 text-white text-sm">
+                {grandTotals.total || '0'}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Official approval stamp representation */}
+      {currentReport.status === 'approved' && (
+        <div className="flex justify-end pt-2 pr-2">
+          <div className="relative border-4 border-rose-500/80 text-rose-550 bg-rose-50/20 rounded-md px-4 py-1.5 font-extrabold uppercase tracking-widest text-center text-xs transform -rotate-2 border-double select-none shadow-xs flex flex-col items-center gap-0.5 leading-none">
+            <span className="text-[8px] tracking-normal font-normal normal-case block">Sở Y Tế - BV Đa Khoa</span>
+            <span className="text-[11px]">DUYỆT Y CHÍNH THỨC</span>
+            <span className="text-[8px] font-mono tracking-normal lowercase block">
+              {currentReport.approvedBy ? `${formatDateToDDMMYYYY(new Date().toISOString().split('T')[0])} bởi ${currentReport.approvedBy}` : 'hệ thống HIS'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* TIME FRAME REPORT POPUP MODAL */}
+      {isExportModalOpen && createPortal(
+        <div 
+          onClick={() => setIsExportModalOpen(false)}
+          className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center z-[100] p-4 transition-all duration-205"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-xl shadow-2xl border border-slate-205 w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-155 text-slate-800"
+          >
+            {/* Modal Header */}
+            <div className="bg-slate-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2">
+                <Database className="w-5 h-5 text-indigo-400" />
+                <div>
+                  <h3 className="font-extrabold text-sm uppercase tracking-wider">Tạo Báo Cáo Tổng Hợp Số Liệu 📊</h3>
+                  <p className="text-[10px] text-slate-300">Tổng hợp danh mục kỹ thuật y sỹ chỉ định toàn khoa cận lâm sàng</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsExportModalOpen(false)}
+                className="text-slate-400 hover:text-white transition font-black text-lg p-1.5 hover:bg-slate-800 rounded-md cursor-pointer select-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-5 flex-1 min-h-0 bg-slate-50/50">
+              {/* Date Interval Selectors */}
+              <div className="bg-white border border-slate-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 gap-4 shadow-3xs">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-black tracking-wide text-slate-500 block">Từ ngày:</label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                    <input 
+                      type="date"
+                      value={exportStartDate}
+                      onChange={(e) => setExportStartDate(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-250 rounded-lg bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-505 focus:border-indigo-505 font-semibold"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-black tracking-wide text-slate-500 block">Đến ngày:</label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                    <input 
+                      type="date"
+                      value={exportEndDate}
+                      onChange={(e) => setExportEndDate(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-250 rounded-lg bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-505 focus:border-indigo-505 font-semibold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Real-time preview list */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-[11px] uppercase tracking-wider font-extrabold text-slate-700 flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5 text-indigo-500" />
+                    Xem trước số liệu tổng hợp trong khoảng thời gian
+                  </h4>
+                  <span className="text-[10px] text-slate-500 font-semibold italic bg-slate-100 px-2.5 py-1 rounded-full">
+                    Từ {formatDateToDDMMYYYY(exportStartDate)} đến {formatDateToDDMMYYYY(exportEndDate)}
+                  </span>
+                </div>
+
+                {/* Table Preview */}
+                <div className="border border-slate-205 rounded-lg overflow-hidden bg-white shadow-3xs max-h-[350px] overflow-y-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-slate-100 sticky top-0 border-b border-slate-205 z-10 text-[10px] font-black uppercase text-slate-650 tracking-wider">
+                      <tr className="divide-x divide-slate-200">
+                        <th className="px-3 py-2.5">Chỉ tiêu kỹ thuật y khoa</th>
+                        <th className="px-2 py-2.5 text-center w-24">Bảo Hiểm (BH)</th>
+                        <th className="px-2 py-2.5 text-center w-24">Ngoài Dịch Vụ (ND)</th>
+                        <th className="px-2 py-2.5 text-center w-28 bg-slate-200/50">Tổng số</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                      {CATEGORIES.map(category => {
+                        const catItems = previewItems.filter(it => it.category === category.key);
+                        const catBhSum = catItems.reduce((acc, it) => acc + (it.bh || 0), 0);
+                        const catNdSum = catItems.reduce((acc, it) => acc + (it.nd || 0), 0);
+                        const catTotal = catBhSum + catNdSum;
+
+                        return (
+                          <React.Fragment key={category.key}>
+                            {/* Department banner row */}
+                            <tr className="bg-slate-50/75 font-extrabold text-[10px] text-slate-900 border-t border-slate-200">
+                              <td className="px-3 py-1.5 uppercase tracking-wide text-indigo-700" style={{ borderLeft: `3px solid ${category.color || '#4f46e5'}` }}>
+                                {category.name}
+                              </td>
+                              <td className="px-2 py-1.5 text-center font-mono">{catBhSum || '-'}</td>
+                              <td className="px-2 py-1.5 text-center font-mono">{catNdSum || '-'}</td>
+                              <td className="px-2 py-1.5 text-center font-mono bg-slate-100 text-indigo-850">{catTotal || '-'}</td>
+                            </tr>
+                            
+                            {/* Items under this category */}
+                            {catItems.map(item => {
+                              const total = (item.bh || 0) + (item.nd || 0);
+                              return (
+                                <tr key={item.id} className="hover:bg-slate-50/50 transition duration-75 text-[11px]">
+                                  <td className="px-5 py-1 text-slate-600 font-medium font-sans">↳ {item.name}</td>
+                                  <td className="px-2 py-1 text-center font-mono font-semibold text-sky-700">{item.bh || '-'}</td>
+                                  <td className="px-2 py-1 text-center font-mono font-semibold text-emerald-700">{item.nd || '-'}</td>
+                                  <td className="px-2 py-1 text-center font-mono font-bold bg-slate-50/50 text-slate-800">{total || '-'}</td>
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="bg-slate-50 border-t border-slate-200 px-5 py-4 flex flex-col sm:flex-row justify-between gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsExportModalOpen(false)}
+                className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 bg-white hover:bg-slate-50 font-extrabold text-xs transition duration-150 cursor-pointer select-none text-center"
+              >
+                Hủy bỏ / Quay lại
+              </button>
+              
+              <div className="flex flex-wrap gap-2.5 justify-end">
+                {/* EXCEL ACTION */}
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition duration-150 shadow-xs cursor-pointer select-none"
+                >
+                  <FileDown className="w-4 h-4 text-emerald-100" />
+                  Xuất file Excel (.csv) 📄
+                </button>
+
+                {/* PDF ACTION */}
+                <button
+                  type="button"
+                  onClick={() => exportConsolidatedReport(exportStartDate, exportEndDate, previewItems, 'pdf')}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs transition duration-150 shadow-xs cursor-pointer select-none"
+                >
+                  <FileDown className="w-4 h-4 text-indigo-100" />
+                  Xuất file PDF 📕
+                </button>
+
+                {/* PRINT ACTION */}
+                <button
+                  type="button"
+                  onClick={() => exportConsolidatedReport(exportStartDate, exportEndDate, previewItems, 'print')}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-slate-850 hover:bg-slate-900 text-white font-extrabold text-xs transition duration-150 shadow-xs cursor-pointer select-none"
+                >
+                  <Printer className="w-4 h-4 text-slate-300 animate-pulse" />
+                  In biểu mẫu 🖨️
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* EXCEL IMPORT MULTI-DATE POPUP MODAL */}
+      {isExcelImportModalOpen && createPortal(
+        <div 
+          onClick={() => {
+            if (!isImportingProgress) setIsExcelImportModalOpen(false);
+          }}
+          className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center z-[100] p-4 transition-all duration-205"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-xl shadow-2xl border border-slate-205 w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-155 text-slate-800"
+          >
+            {/* Modal Header */}
+            <div className="bg-emerald-700 text-white px-5 py-4 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2">
+                <UploadCloud className="w-5 h-5 text-emerald-100" />
+                <div>
+                  <h3 className="font-extrabold text-sm uppercase tracking-wider">Nhập dữ liệu báo cáo qua Excel hàng tháng 📂</h3>
+                  <p className="text-[10px] text-emerald-100/90">Dành riêng cho Quản trị viên (Admin) nhập số liệu của nhiều ngày đồng thời</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => {
+                  if (!isImportingProgress) setIsExcelImportModalOpen(false);
+                }}
+                className="text-emerald-200 hover:text-white transition font-black text-lg p-1.5 hover:bg-emerald-800 rounded-md cursor-pointer select-none"
+                disabled={isImportingProgress}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto space-y-5 flex-1 min-h-0 bg-slate-50/50">
+              
+              {/* Instructions and Download Template */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2 bg-white rounded-lg p-3.5 border border-slate-200/80 shadow-3xs space-y-2 text-xs">
+                  <h4 className="font-extrabold text-[#047857] uppercase text-[10px] tracking-wider flex items-center gap-1.5 font-sans">
+                    💡 Hướng dẫn cấu trúc tệp Excel biểu mẫu:
+                  </h4>
+                  <ul className="list-disc list-inside space-y-1 text-slate-600 pl-1 leading-relaxed">
+                    <li>Nhận diện cột tự động theo tên: <strong className="text-slate-800">Ngày</strong> (hoặc Date), <strong className="text-slate-800">Chỉ tiêu</strong> (hoặc Tên), <strong className="text-slate-800">BH</strong>, <strong className="text-slate-800">ND</strong>.</li>
+                    <li>Đột phá: Hỗ trợ tự động phân tích định dạng ngày chuẩn quốc tế (<code className="text-emerald-700 bg-emerald-50 px-1 font-mono text-[10px] rounded">YYYY-MM-DD</code>) lẫn Việt Nam (<code className="text-emerald-700 bg-emerald-50 px-1 font-mono text-[10px] rounded">DD/MM/YYYY</code>).</li>
+                    <li>Chế độ so khớp thông minh: Hệ thống tự động so khớp gần đúng tên kỹ thuật (ví dụ: <span className="italic">"Siêu âm tim"</span>, <span className="italic">"Nội soi dạ dày"</span>...) với 30 chỉ tiêu chuẩn.</li>
+                  </ul>
+                </div>
+
+                <div className="bg-emerald-50/40 rounded-lg p-3.5 border border-emerald-150 flex flex-col justify-between space-y-2 text-center">
+                  <div>
+                    <h5 className="font-extrabold text-emerald-850 text-[11px] uppercase tracking-wide">Tải File Excel Mẫu</h5>
+                    <p className="text-[10px] text-emerald-800 mt-1 leading-relaxed">Sử dụng tệp excel chuẩn để đảm bảo tỷ lệ so khớp cao tối đa.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadExcelTemplate}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-650 hover:bg-emerald-700 text-white font-heavy text-xs transition duration-15 shadow-2xs cursor-pointer select-none"
+                  >
+                    <FileDown className="w-4 h-4 text-emerald-100" />
+                    Tải mẫu Excel (.xlsx) 📥
+                  </button>
+                </div>
+              </div>
+
+              {/* Upload Field */}
+              <div className="bg-white border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-xl p-8 transition duration-150 text-center relative max-w-xl mx-auto">
+                <input 
+                  type="file" 
+                  accept=".xlsx, .xls, .csv" 
+                  onChange={handleExcelImportFile}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  disabled={isImportingProgress}
+                />
+                <div className="space-y-3">
+                  <UploadCloud className="w-10 h-10 text-slate-400 mx-auto animate-pulse" />
+                  <div>
+                    <p className="text-xs font-black text-slate-800">Kéo & thả tệp Excel của bạn vào đây hoặc click để duyệt</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Chấp nhận tệp định dạng .xlsx, .xls, .csv</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Parsing status & Error notifications */}
+              {importError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg text-xs font-bold leading-relaxed shadow-3xs">
+                  ⚠️ {importError}
+                </div>
+              )}
+
+              {/* Live import consolidation log */}
+              {importLogs.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-[10px] uppercase tracking-wider font-extrabold text-slate-500 block">Nhật ký phân tích dữ liệu:</h4>
+                  <div className="bg-slate-900 text-slate-200 font-mono text-[10px] p-4 rounded-lg overflow-y-auto max-h-[160px] space-y-1.5 shadow-inner">
+                    {importLogs.map((log, lIdx) => (
+                      <div key={lIdx} className={log.includes('✅') ? 'text-emerald-400' : log.includes('⚠️') ? 'text-amber-400' : log.includes('❌') ? 'text-rose-400 font-black' : 'text-slate-300'}>
+                        {log}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Parsed daily reports preview list */}
+              {parsedReports.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-[10px] uppercase tracking-wider font-extrabold text-slate-700 flex items-center gap-1">
+                    📊 Xem trước dữ liệu chuẩn bị nạp vào hệ thống:
+                  </h4>
+                  <div className="border border-slate-205 rounded-lg overflow-hidden bg-white shadow-3xs max-h-[220px] overflow-y-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead className="bg-slate-100 sticky top-0 border-b border-slate-205 z-10 text-[9px] font-black uppercase text-slate-650 tracking-wider">
+                        <tr className="divide-x divide-slate-200">
+                          <th className="px-3 py-2">Ngày kê khai</th>
+                          <th className="px-3 py-2 text-center">Trạng thái phê duyệt</th>
+                          <th className="px-3 py-2 text-center">Người nạp dữ liệu</th>
+                          <th className="px-3 py-2 text-center">Bảo Hiểm (BH)</th>
+                          <th className="px-3 py-2 text-center">Dịch Vụ (ND)</th>
+                          <th className="px-3 py-2 text-center bg-slate-200">Tổng số ca</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-[11px] text-slate-700 font-medium font-sans">
+                        {parsedReports.sort((a,b)=>a.date.localeCompare(b.date)).map((r) => {
+                          const bh = r.items.reduce((s,i)=>s+i.bh,0);
+                          const nd = r.items.reduce((s,i)=>s+i.nd,0);
+                          return (
+                            <tr key={r.date} className="hover:bg-slate-50 divide-x divide-slate-100">
+                              <td className="px-3 py-1.5 font-bold text-slate-900">{formatDateToDDMMYYYY(r.date)}</td>
+                              <td className="px-3 py-1.5 text-center text-[10px] text-emerald-800 font-black uppercase">DUYỆT TỰ ĐỘNG</td>
+                              <td className="px-3 py-1.5 text-center text-slate-500">{currentUser.name}</td>
+                              <td className="px-3 py-1.5 text-center font-mono text-sky-700">{bh} ca</td>
+                              <td className="px-3 py-1.5 text-center font-mono text-emerald-700">{nd} ca</td>
+                              <td className="px-3 py-1.5 text-center font-mono font-bold bg-slate-100 text-slate-800">{bh+nd} ca</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="bg-slate-50 border-t border-slate-200 px-5 py-4 flex justify-between items-center shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsExcelImportModalOpen(false)}
+                className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 bg-white hover:bg-slate-50 font-extrabold text-xs transition duration-150 cursor-pointer select-none text-center"
+                disabled={isImportingProgress}
+              >
+                Hủy bỏ / Quay lại
+              </button>
+              
+              <button
+                type="button"
+                onClick={handleExecuteImport}
+                disabled={parsedReports.length === 0 || isImportingProgress}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition duration-150 shadow-xs cursor-pointer select-none disabled:opacity-50"
+              >
+                {isImportingProgress ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-150" />
+                    Đang lưu dữ liệu...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-100" />
+                    Ghi nhận & Phát hành số liệu ({parsedReports.length} ngày) ✅
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {confirmSheetSync && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-sm w-full p-5 shadow-xl border border-slate-205 dark:border-slate-800 space-y-4 animate-scale-up text-slate-800 dark:text-slate-200">
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 shrink-0">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </span>
+              <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">Xác nhận đồng bộ Google Sheets</h4>
+            </div>
+            <p className="text-xs text-slate-650 dark:text-slate-400 leading-relaxed font-semibold">
+              {confirmSheetSync.syncAllMonth
+                ? "Bạn có chắc chắn muốn đồng bộ toàn bộ báo cáo các ngày có dữ liệu trong tháng lên Google Sheets? Thao tác này sẽ ghi đè lên các cột tương ứng trong bảng tính của bạn."
+                : `Bạn có chắc chắn muốn đồng bộ dữ liệu báo cáo Clinis ngày ${formatDateToDDMMYYYY(activeDate)} lên Google Sheets? Thao tác này sẽ ghi đè cột tương ứng.`}
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmSheetSync(null)}
+                className="px-3.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 text-xs font-bold transition hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const syncAll = confirmSheetSync.syncAllMonth;
+                  setConfirmSheetSync(null);
+                  proceedSyncToSheets(syncAll);
+                }}
+                className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold transition hover:bg-indigo-700 cursor-pointer"
+              >
+                Đồng ý
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmSheetPull && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-sm w-full p-5 shadow-xl border border-slate-205 dark:border-slate-800 space-y-4 animate-scale-up text-slate-800 dark:text-slate-200">
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 shrink-0">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </span>
+              <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">Xác nhận tải số liệu Google Sheets</h4>
+            </div>
+            <p className="text-xs text-slate-650 dark:text-slate-400 leading-relaxed font-semibold">
+              {confirmSheetPull.pullAllMonth
+                ? "Bạn có chắc chắn muốn tải toàn bộ số liệu báo cáo của tất cả các ngày trong tháng từ Google Sheets về? Dữ liệu cục bộ trong ngày tương ứng sẽ bị thay thế bằng giá trị mới tải về."
+                : `Bạn có chắc chắn muốn tải số liệu tương ứng ngày ${formatDateToDDMMYYYY(activeDate)} từ Google Sheets về lưu trữ vào phần mềm Clinis?`}
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmSheetPull(null)}
+                className="px-3.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-605 dark:text-slate-300 bg-white dark:bg-slate-900 text-xs font-bold transition hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const pullAll = confirmSheetPull.pullAllMonth;
+                  setConfirmSheetPull(null);
+                  await proceedPullFromSheets(pullAll);
+                }}
+                className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold transition hover:bg-emerald-700 cursor-pointer hover:scale-[1.02] active:scale-95"
+              >
+                Đồng ý
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

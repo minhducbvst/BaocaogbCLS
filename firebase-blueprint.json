@@ -1,0 +1,349 @@
+{
+  "entities": {
+    "DailyReport": {
+      "title": "DailyReport",
+      "description": "Báo cáo số liệu giao ban hàng ngày khoa Cận lâm sàng",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "Ngày báo cáo (định dạng YYYY-MM-DD)"
+        },
+        "submittedBy": {
+          "type": "string",
+          "description": "Tên người lập báo cáo"
+        },
+        "submittedAt": {
+          "type": "string",
+          "description": "Thời gian gửi"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "submitted", "approved"]
+        },
+        "approvedBy": {
+          "type": "string",
+          "description": "Người phê duyệt"
+        },
+        "items": {
+          "type": "array",
+          "description": "Danh sách các chỉ số dịch vụ kỹ thuật"
+        }
+      },
+      "required": ["date", "submittedBy", "submittedAt", "status", "items"]
+    },
+    "Meeting": {
+      "title": "Meeting",
+      "description": "Thông tin và biên bản cuộc họp giao ban",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "dateTime": {
+          "type": "string"
+        },
+        "venue": {
+          "type": "string"
+        },
+        "chairperson": {
+          "type": "string"
+        },
+        "secretary": {
+          "type": "string"
+        },
+        "attendees": {
+          "type": "array"
+        },
+        "agenda": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "minutes": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["scheduled", "ongoing", "completed", "cancelled"]
+        },
+        "createdBy": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "title", "dateTime", "venue", "chairperson", "secretary", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Thông báo hệ thống",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["meeting", "report", "system", "alert", "task", "update"]
+        },
+        "read": {
+          "type": "boolean"
+        }
+      },
+      "required": ["id", "title", "content", "timestamp", "type", "read"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Thông tin nhân sự khoa Cận lâm sàng",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "departmentName": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "shiftCount": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string"
+        },
+        "birthYear": {
+          "type": "number"
+        },
+        "gender": {
+          "type": "string"
+        },
+        "qualification": {
+          "type": "string"
+        },
+        "degree": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "name", "role", "email", "departmentName"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "Phân khoa, phòng kỹ thuật trong khoa Cận lâm sàng",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "headId": {
+          "type": "string"
+        },
+        "headName": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "name", "code"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Nhật ký hoạt động hệ thống số hóa",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "actor": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string"
+        },
+        "details": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "actor", "action", "details", "timestamp"]
+    },
+    "Procedure": {
+      "title": "Procedure",
+      "description": "Danh mục kỹ thuật nghiệp vụ",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "name", "category"]
+    },
+    "SystemSettings": {
+      "title": "SystemSettings",
+      "description": "Cấu hình tùy biến giao diện và tiêu đề hệ thống",
+      "type": "object",
+      "properties": {
+        "themeColor": {
+          "type": "string"
+        },
+        "bannerPreset": {
+          "type": "string"
+        },
+        "bannerUrl": {
+          "type": "string"
+        },
+        "logoPreset": {
+          "type": "string"
+        },
+        "logoUrl": {
+          "type": "string"
+        },
+        "bgStyle": {
+          "type": "string"
+        },
+        "systemTitle": {
+          "type": "string"
+        },
+        "systemSubtitle": {
+          "type": "string"
+        }
+      },
+      "required": ["themeColor", "bgStyle", "systemTitle"]
+    },
+    "WorkReport": {
+      "title": "WorkReport",
+      "description": "Ý kiến đóng góp, kiến nghị, báo cáo công việc và chỉ đạo điều hành",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["report", "suggestion", "request"]
+        },
+        "departmentName": {
+          "type": "string"
+        },
+        "submittedBy": {
+          "type": "string"
+        },
+        "submittedById": {
+          "type": "string"
+        },
+        "submittedAt": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "reviewed", "approved", "rejected", "processing"]
+        },
+        "directive": {
+          "type": "object"
+        },
+        "assignedTask": {
+          "type": "object"
+        },
+        "comments": {
+          "type": "array"
+        }
+      },
+      "required": ["id", "title", "content", "category", "departmentName", "submittedBy", "submittedById", "submittedAt", "status"]
+    }
+  },
+  "firestore": {
+    "/reports/{reportId}": {
+      "schema": "DailyReport",
+      "description": "Báo cáo số liệu giao ban hàng ngày"
+    },
+    "/meetings/{meetingId}": {
+      "schema": "Meeting",
+      "description": "Lịch họp giao ban khoa"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Thông báo trạng thái"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Hồ sơ nhân sự thuộc khoa"
+    },
+    "/departments/{departmentId}": {
+      "schema": "Department",
+      "description": "Cơ cấu khoa phòng CLS"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Nhật ký hệ thống"
+    },
+    "/procedures/{procedureId}": {
+      "schema": "Procedure",
+      "description": "Danh mục kỹ thuật nghiệp vụ"
+    },
+    "/settings/{settingsId}": {
+      "schema": "SystemSettings",
+      "description": "Cấu hình trung tâm"
+    },
+    "/workReports/{reportId}": {
+      "schema": "WorkReport",
+      "description": "Biên bản, ý kiến, kiến nghị"
+    }
+  }
+}
