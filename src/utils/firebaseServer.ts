@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp } from "firebase-admin/app";
+import { initializeApp, getApps, getApp, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import fs from "fs";
 import path from "path";
@@ -20,19 +20,53 @@ export function getFirebaseConfig() {
 export function getFirestoreDb() {
   if (dbInstance) return dbInstance;
 
-  const config = getFirebaseConfig();
-  if (!config || !config.projectId) {
-    console.warn("Firebase config is missing or incomplete. Using in-memory fallback.");
+  // Prioritize environment variables for production environments (Vercel/Render/Railway)
+  let projectId = process.env.FIREBASE_PROJECT_ID;
+  let dbId = process.env.FIREBASE_DATABASE_ID || "(default)";
+
+  if (!projectId) {
+    // Fallback to local config file if env vars are not set (local dev in AI Studio)
+    const config = getFirebaseConfig();
+    if (config && config.projectId) {
+      projectId = config.projectId;
+      dbId = config.firestoreDatabaseId || "(default)";
+    }
+  }
+
+  if (!projectId) {
+    console.warn("Firebase config is missing or incomplete (No FIREBASE_PROJECT_ID found in env or local file). Using in-memory fallback.");
     return null;
   }
 
   try {
-    const app = getApps().length === 0 ? initializeApp({
-      projectId: config.projectId,
-    }) : getApp();
-    const dbId = config.firestoreDatabaseId || "(default)";
+    let app;
+    if (getApps().length === 0) {
+      const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
+      if (serviceAccountVar) {
+        try {
+          const serviceAccount = JSON.parse(serviceAccountVar);
+          app = initializeApp({
+            credential: cert(serviceAccount),
+            projectId: projectId
+          });
+          console.log("Firebase App initialized using FIREBASE_SERVICE_ACCOUNT credential.");
+        } catch (jsonErr) {
+          console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT JSON. Falling back to default initialization:", jsonErr);
+          app = initializeApp({
+            projectId: projectId,
+          });
+        }
+      } else {
+        app = initializeApp({
+          projectId: projectId,
+        });
+      }
+    } else {
+      app = getApp();
+    }
+    
     dbInstance = getFirestore(app, dbId);
-    console.log(`Firebase Firestore initialized successfully via firebase-admin with DB ID: ${dbId}`);
+    console.log(`Firebase Firestore initialized successfully via firebase-admin with Project ID: ${projectId}, DB ID: ${dbId}`);
     return dbInstance;
   } catch (err) {
     console.error("Failed to initialize Firebase Firestore Admin SDK:", err);
