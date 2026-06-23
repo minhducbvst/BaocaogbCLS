@@ -22,15 +22,30 @@ export function getFirestoreDb() {
 
   // Prioritize environment variables for production environments (Vercel/Render/Railway)
   let projectId = process.env.FIREBASE_PROJECT_ID;
-  let dbId = process.env.FIREBASE_DATABASE_ID || "(default)";
+  let dbId = process.env.FIREBASE_DATABASE_ID;
 
-  if (!projectId) {
-    // Fallback to local config file if env vars are not set (local dev in AI Studio)
-    const config = getFirebaseConfig();
-    if (config && config.projectId) {
+  // Fallback to local config file if env vars are not set (local dev in AI Studio)
+  const config = getFirebaseConfig();
+  if (config) {
+    if (!projectId && config.projectId) {
       projectId = config.projectId;
-      dbId = config.firestoreDatabaseId || "(default)";
     }
+    if (!dbId && config.firestoreDatabaseId) {
+      dbId = config.firestoreDatabaseId;
+    }
+  }
+
+  // If projectId is "remixed-project-id" or not set, check GOOGLE_CLOUD_PROJECT
+  if (!projectId || projectId === "remixed-project-id") {
+    if (process.env.GOOGLE_CLOUD_PROJECT) {
+      console.log(`Overriding fallback/placeholder project ID with GOOGLE_CLOUD_PROJECT: ${process.env.GOOGLE_CLOUD_PROJECT}`);
+      projectId = process.env.GOOGLE_CLOUD_PROJECT;
+    }
+  }
+
+  // Final fallback to default for dbId
+  if (!dbId) {
+    dbId = "(default)";
   }
 
   if (!projectId) {

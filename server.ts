@@ -2160,12 +2160,10 @@ app.post("/api/sheets/sync", async (req, res) => {
     sheetRows.push(getItemVal('dienTim_thuong', 'dienTim'));
     sheetRows.push(getItemVal('dienTim_luuHuyetNao', 'dienTim'));
 
-    // Row 30 - Điện tim SUM
     const sumDT_bh = dienTimVals.reduce((acc, v) => acc + v.bh, 0);
     const sumDT_nd = dienTimVals.reduce((acc, v) => acc + v.nd, 0);
-    sheetRows.push([formatCellVal(sumDT_bh), formatCellVal(sumDT_nd)]);
 
-    // Row 31 to 40
+    // Row 30 to 39
     sheetRows.push(getItemVal('xetNghiem_sinhHoa', 'xetNghiem'));
     sheetRows.push(getItemVal('xetNghiem_huyetHoc', 'xetNghiem'));
     sheetRows.push(getItemVal('xetNghiem_nuocTieu', 'xetNghiem'));
@@ -2177,18 +2175,18 @@ app.post("/api/sheets/sync", async (req, res) => {
     sheetRows.push(getItemVal('xetNghiem_teBao', 'xetNghiem'));
     sheetRows.push(getItemVal('xetNghiem_thinPrep', 'xetNghiem'));
 
-    // Row 41 - Xét nghiệm SUM
+    // Row 40 - Xét nghiệm SUM
     const sumXN_bh = xetNghiemVals.reduce((acc, v) => acc + v.bh, 0);
     const sumXN_nd = xetNghiemVals.reduce((acc, v) => acc + v.nd, 0);
     sheetRows.push([formatCellVal(sumXN_bh), formatCellVal(sumXN_nd)]);
 
-    // Row 42 - GRAND TOTAL
+    // Row 41 - GRAND TOTAL
     const total_bh = sumSA_bh + sumNS_bh + sumXQ_bh + sumDT_bh + sumXN_bh;
     const total_nd = sumSA_nd + sumNS_nd + sumXQ_nd + sumDT_nd + sumXN_nd;
     sheetRows.push([formatCellVal(total_bh), formatCellVal(total_nd)]);
 
     // Construct Range
-    const range = `'${sheetName}'!${colBhLetter}7:${colNdLetter}42`;
+    const range = `'${sheetName}'!${colBhLetter}7:${colNdLetter}41`;
     dataPayload.push({
       range,
       values: sheetRows
@@ -2427,17 +2425,17 @@ app.post("/api/sheets/pull", async (req, res) => {
     null,                          // index 20, row 27 (xQuang SUM)
     'dienTim_thuong',              // index 21, row 28
     'dienTim_luuHuyetNao',         // index 22, row 29
-    null,                          // index 23, row 30 (dienTim SUM)
-    'xetNghiem_sinhHoa',           // index 24, row 31
-    'xetNghiem_huyetHoc',          // index 25, row 32
-    'xetNghiem_nuocTieu',          // index 26, row 33
-    'xetNghiem_viSinh',            // index 27, row 34
-    'xetNghiem_mienDich',          // index 28, row 35
-    'xetNghiem_melatec',           // index 29, row 36
-    'xetNghiem_hopeHpv',           // index 30, row 37
-    'xetNghiem_hopePap',           // index 31, row 38
-    'xetNghiem_teBao',             // index 32, row 39
-    'xetNghiem_thinPrep',          // index 33, row 40
+    'xetNghiem_sinhHoa',           // index 23, row 30
+    'xetNghiem_huyetHoc',          // index 24, row 31
+    'xetNghiem_nuocTieu',          // index 25, row 32
+    'xetNghiem_viSinh',            // index 26, row 33
+    'xetNghiem_mienDich',          // index 27, row 34
+    'xetNghiem_melatec',           // index 28, row 35
+    'xetNghiem_hopeHpv',           // index 29, row 36
+    'xetNghiem_hopePap',           // index 30, row 37
+    'xetNghiem_teBao',             // index 31, row 38
+    'xetNghiem_thinPrep',          // index 32, row 39
+    null,                          // index 33, row 40 (xetNghiem SUM)
   ];
 
   let daysToProcess: number[] = [];
