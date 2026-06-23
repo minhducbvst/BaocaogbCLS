@@ -141,10 +141,17 @@ export default function ClinicalReportTable({
           text: data.message || 'Đồng bộ Google Sheets thành công!'
         });
       } else {
-        setSheetsSyncMessage({
-          type: 'error',
-          text: data.error || 'Lỗi đồng bộ Google Sheets.'
-        });
+        if (response.status === 401 || data.reauthRequired || (data.error && (data.error.includes("401") || data.error.includes("UNAUTHENTICATED") || data.error.includes("credentials")))) {
+          setSheetsSyncMessage({
+            type: 'error',
+            text: 'Mã Access Token kết nối Google Sheets đã hết hạn hoặc không hợp lệ. Vui lòng vào Quản trị hệ thống > Đồng bộ Google Sheets để kết nối và cấp quyền lại tài khoản Google của bạn.'
+          });
+        } else {
+          setSheetsSyncMessage({
+            type: 'error',
+            text: data.error || 'Lỗi đồng bộ Google Sheets.'
+          });
+        }
       }
     } catch (err: any) {
       setSheetsSyncMessage({
@@ -217,10 +224,17 @@ export default function ClinicalReportTable({
           await onRefreshData();
         }
       } else {
-        setSheetsSyncMessage({
-          type: 'error',
-          text: data.error || 'Lỗi tải dữ liệu từ Google Sheets.'
-        });
+        if (response.status === 401 || data.reauthRequired || (data.error && (data.error.includes("401") || data.error.includes("UNAUTHENTICATED") || data.error.includes("credentials")))) {
+          setSheetsSyncMessage({
+            type: 'error',
+            text: 'Mã Access Token kết nối Google Sheets đã hết hạn hoặc không hợp lệ. Vui lòng vào Quản trị hệ thống > Đồng bộ Google Sheets để kết nối và cấp quyền lại tài khoản Google của bạn.'
+          });
+        } else {
+          setSheetsSyncMessage({
+            type: 'error',
+            text: data.error || 'Lỗi tải dữ liệu từ Google Sheets.'
+          });
+        }
       }
     } catch (err: any) {
       setSheetsSyncMessage({
