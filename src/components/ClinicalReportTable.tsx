@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { DailyReport, ReportItem, User, CategoryKey } from '../types';
 import { CATEGORIES, USERS } from '../data';
-import { Save, CheckCircle, FilePenLine, Lock, ShieldAlert, Calendar, Eye, Database, Printer, FileDown, UploadCloud, DownloadCloud, RefreshCw, Settings } from 'lucide-react';
-import { formatDateToDDMMYYYY } from '../utils/date';
+import { Save, CheckCircle, FilePenLine, Lock, ShieldAlert, Calendar, Eye, Database, Printer, FileDown, UploadCloud, DownloadCloud, RefreshCw, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatDateToDDMMYYYY, shiftDateString } from '../utils/date';
 import * as XLSX from 'xlsx';
 
 interface ClinicalReportTableProps {
@@ -49,6 +49,7 @@ export default function ClinicalReportTable({
   const [syncTimeRange, setSyncTimeRange] = useState<'day' | 'week' | 'month' | 'year'>('day');
   const [syncOverwrite, setSyncOverwrite] = useState<boolean>(true);
   const [syncSelectedDate, setSyncSelectedDate] = useState<string>(activeDate);
+  const [isGoogleSyncModalOpen, setIsGoogleSyncModalOpen] = useState(false);
 
   useEffect(() => {
     setSyncSelectedDate(activeDate);
@@ -1229,48 +1230,177 @@ export default function ClinicalReportTable({
 
   return (
     <div className="bg-white rounded-lg border border-slate-205 shadow-xs overflow-hidden space-y-4 p-4 transition-all">
+      {/* Department Selector for high productivity data declaration layout - Render only if admin or truongKhoa */}
+      {(currentUser.role === 'admin' || currentUser.role === 'truongKhoa') && (
+        <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-2.5 shadow-2xs">
+          <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block" id="label-dept-selector">
+            Chọn Phòng ban / Chuyên khoa kê khai số liệu:
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {CATEGORIES.map((category) => {
+              const isSelected = selectedCategory === category.key;
+              return (
+                <button
+                  key={category.key}
+                  type="button"
+                  onClick={() => setSelectedCategory(category.key)}
+                  className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition cursor-pointer select-none flex items-center gap-2 ${
+                    isSelected
+                      ? 'bg-indigo-600 border-indigo-650 text-white shadow-sm font-heavy'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                  id={`btn-dept-${category.key}`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-indigo-200' : category.color.split(' ')[0]}`} />
+                  {isSelected ? <strong>{category.name}</strong> : category.name}
+                </button>
+              );
+            })}
+            
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('all')}
+              className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition cursor-pointer select-none flex items-center gap-2 ${
+                selectedCategory === 'all'
+                  ? 'bg-slate-900 border-slate-950 text-white shadow-sm'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+              id="btn-dept-all"
+            >
+              <Database className="w-3.5 h-3.5" />
+              Tất cả phòng ban
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Date, status, and Excel import bar on the same line */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-150">
         <div className="flex items-center gap-2">
           <Calendar className="w-4 h-4 text-indigo-605" />
           <span className="text-xs font-extrabold text-slate-800">Chọn ngày giao ban:</span>
-          <input
-            type="date"
-            value={activeDate}
-            onChange={(e) => setActiveDate(e.target.value)}
-            className="border border-slate-205 rounded-md px-2 py-1 text-xs text-slate-800 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-550 cursor-pointer bg-slate-50 hover:bg-slate-100/50 transition"
-          />
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setActiveDate(shiftDateString(activeDate, -1))}
+              className="inline-flex items-center justify-center p-1.5 rounded-md border border-slate-205 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-600 hover:text-indigo-600 transition shadow-xs cursor-pointer select-none h-7 w-7"
+              title="Quay lại ngày trước"
+              id="btn-prev-day"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <input
+              type="date"
+              value={activeDate}
+              onChange={(e) => setActiveDate(e.target.value)}
+              className="border border-slate-205 rounded-md px-2 py-1 h-7 text-xs text-slate-800 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-550 cursor-pointer bg-slate-50 hover:bg-slate-100/50 transition"
+              id="input-active-date"
+            />
+            <button
+              type="button"
+              onClick={() => setActiveDate(shiftDateString(activeDate, 1))}
+              className="inline-flex items-center justify-center p-1.5 rounded-md border border-slate-205 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-600 hover:text-indigo-600 transition shadow-xs cursor-pointer select-none h-7 w-7"
+              title="Chuyển sang ngày kế tiếp"
+              id="btn-next-day"
+            >
+              <ChevronRight className="w-4 h-4 text-center" />
+            </button>
+          </div>
         </div>
 
-        {/* Report state "Bản nháp" and "Nhập Excel" on the same line */}
+        {/* Report state "Bản nháp", "Nhập Excel" and "Đồng bộ Google" on the same line */}
         <div className="flex flex-wrap items-center gap-2 md:self-end">
           {getStatusBadge()}
           
           {currentUser.role === 'admin' && (
-            <button
-              type="button"
-              onClick={() => {
-                setImportLogs([]);
-                setImportError(null);
-                setParsedReports([]);
-                setIsExcelImportModalOpen(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition duration-150 shadow-xs cursor-pointer select-none"
-            >
-              <UploadCloud className="w-3.5 h-3.5" />
-              Nhập Excel 📂
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setImportLogs([]);
+                  setImportError(null);
+                  setParsedReports([]);
+                  setIsExcelImportModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs transition duration-150 shadow-xs cursor-pointer select-none"
+              >
+                <UploadCloud className="w-3.5 h-3.5" />
+                Nhập Excel 📂
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSheetsSyncMessage(null);
+                  setIsGoogleSyncModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs transition duration-150 shadow-xs cursor-pointer select-none"
+              >
+                <svg className="w-3.5 h-3.5 text-indigo-150" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                </svg>
+                Đồng bộ Google 📊
+                {googleAccessToken && (
+                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping shrink-0" />
+                )}
+              </button>
+            </>
           )}
         </div>
       </div>
 
       {/* 5. Google Sheets Integration Panel */}
-      {currentUser.role === 'admin' && (
-        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-3xs space-y-4 transition-all duration-300">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
-            <div className="flex items-center gap-2.5">
-              <span className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      {isGoogleSyncModalOpen && currentUser.role === 'admin' && createPortal(
+        <div 
+          onClick={() => {
+            if (!isSyncingSheets && !isPullingSheets) setIsGoogleSyncModalOpen(false);
+          }}
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] animate-fade-in text-slate-800 dark:text-slate-100"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-205 dark:border-slate-800 w-full max-w-3xl max-h-[90vh] overflow-y-auto flex flex-col animate-scale-up p-5"
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 mb-4 shrink-0">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                </svg>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-sm uppercase tracking-wider flex items-center gap-2">
+                    Đồng bộ Google Sheets 📊
+                    {googleAccessToken ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-2 py-0.5 rounded-full font-black font-sans">
+                        ● Đã kết nối
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold">
+                        ○ Chưa kết nối
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold uppercase tracking-wider">
+                    Xử lý gửi/tải dữ liệu Clinis hai chiều trực tiếp
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isSyncingSheets && !isPullingSheets) setIsGoogleSyncModalOpen(false);
+                }}
+                className="text-slate-450 hover:text-slate-700 dark:hover:text-slate-200 font-bold transition text-lg px-2.5 py-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded select-none cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
                 </svg>
               </span>
@@ -1697,7 +1827,10 @@ export default function ClinicalReportTable({
               </div>
             </div>
           )}
-        </div>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* Primary Data Input Button / Edit Actions placed on a line below */}
@@ -1753,48 +1886,6 @@ export default function ClinicalReportTable({
               Duyệt số liệu
             </button>
           )}
-        </div>
-      )}
-
-      {/* Department Selector for high productivity data declaration layout - Render only if admin or truongKhoa */}
-      {(currentUser.role === 'admin' || currentUser.role === 'truongKhoa') && (
-        <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-2.5 shadow-2xs">
-          <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">
-            Chọn Phòng ban / Chuyên khoa kê khai số liệu:
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {CATEGORIES.map((category) => {
-              const isSelected = selectedCategory === category.key;
-              return (
-                <button
-                  key={category.key}
-                  type="button"
-                  onClick={() => setSelectedCategory(category.key)}
-                  className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition cursor-pointer select-none flex items-center gap-2 ${
-                    isSelected
-                      ? 'bg-indigo-600 border-indigo-650 text-white shadow-sm font-heavy'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-indigo-200' : category.color.split(' ')[0]}`} />
-                  {isSelected ? <strong>{category.name}</strong> : category.name}
-                </button>
-              );
-            })}
-            
-            <button
-              type="button"
-              onClick={() => setSelectedCategory('all')}
-              className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition cursor-pointer select-none flex items-center gap-2 ${
-                selectedCategory === 'all'
-                  ? 'bg-slate-900 border-slate-950 text-white shadow-sm'
-                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-              }`}
-            >
-              <Database className="w-3.5 h-3.5" />
-              Tất cả phòng ban
-            </button>
-          </div>
         </div>
       )}
 
@@ -2317,8 +2408,8 @@ export default function ClinicalReportTable({
         document.body
       )}
 
-      {confirmSheetSync && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] animate-fade-in">
+      {confirmSheetSync && createPortal(
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[20000] animate-fade-in text-slate-800 dark:text-slate-100">
           <div className="bg-white dark:bg-slate-900 rounded-xl max-w-sm w-full p-5 shadow-xl border border-slate-205 dark:border-slate-800 space-y-4 animate-scale-up text-slate-800 dark:text-slate-200">
             <div className="flex items-center gap-3">
               <span className="p-2.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 shrink-0">
@@ -2365,11 +2456,12 @@ export default function ClinicalReportTable({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
   
-      {confirmSheetPull && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] animate-fade-in">
+      {confirmSheetPull && createPortal(
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[20000] animate-fade-in text-slate-800 dark:text-slate-100">
           <div className="bg-white dark:bg-slate-900 rounded-xl max-w-sm w-full p-5 shadow-xl border border-slate-205 dark:border-slate-800 space-y-4 animate-scale-up text-slate-800 dark:text-slate-200">
             <div className="flex items-center gap-3">
               <span className="p-2.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 shrink-0">
@@ -2416,7 +2508,8 @@ export default function ClinicalReportTable({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

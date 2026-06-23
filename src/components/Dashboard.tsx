@@ -126,16 +126,22 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
     total: boolean;
     change: boolean;
     revenue: boolean;
+    avgPerDay: boolean;
   }>(() => {
     const saved = localStorage.getItem('dashboard-visible-columns');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Ensure revenue is present since we just added it
-        if (parsed && typeof parsed.revenue === 'undefined') {
-          parsed.revenue = true;
+        // Ensure revenue and avgPerDay are present
+        if (parsed) {
+          if (typeof parsed.revenue === 'undefined') {
+            parsed.revenue = true;
+          }
+          if (typeof parsed.avgPerDay === 'undefined') {
+            parsed.avgPerDay = true;
+          }
+          return parsed;
         }
-        return parsed;
       } catch (e) {
         // Fallback
       }
@@ -149,6 +155,7 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
       total: true,
       change: true,
       revenue: true,
+      avgPerDay: true,
     };
   });
   const [isColMenuOpen, setIsColMenuOpen] = useState(false);
@@ -759,14 +766,17 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
     if (visibleColumns.bh) headers.push("Bảo hiểm (BH)");
     if (visibleColumns.nd) headers.push("Dịch vụ (ND)");
     if (visibleColumns.total) headers.push("Tổng số ca");
+    if (visibleColumns.avgPerDay) headers.push("Trung bình/ngày");
     if (visibleColumns.change) headers.push("Tăng/Giảm (vs. trước)");
     if (visibleColumns.revenue) headers.push("Dự thu phân tích (VND)");
     
+    const daysCount = Math.max(activeFilteredReports.length, 1);
     const rows = searchedTableData.map((item, index) => {
       const categoryInfo = CATEGORIES.find(c => c.key === item.category);
       const catName = categoryInfo?.name || item.category;
       const prices = ESTIMATE_PRICES[item.category as keyof typeof ESTIMATE_PRICES] || { bh: 0, nd: 0 };
       const revenue = (item.bh * (prices.bh || 0)) + (item.nd * (prices.nd || 0));
+      const avgPerDayValue = item.total / daysCount;
       
       const prevTotal = previousStats ? (previousStats.stats?.procedureMap[item.id]?.count || 0) : 0;
       let changeText = "-";
@@ -794,6 +804,7 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
       if (visibleColumns.bh) activeRow.push(item.bh);
       if (visibleColumns.nd) activeRow.push(item.nd);
       if (visibleColumns.total) activeRow.push(item.total);
+      if (visibleColumns.avgPerDay) activeRow.push(parseFloat(avgPerDayValue.toFixed(1)));
       if (visibleColumns.change) activeRow.push(changeText);
       if (visibleColumns.revenue) activeRow.push(revenue);
       
@@ -875,10 +886,17 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
     const totalNdProcedures = searchedTableData.reduce((acc, curr) => acc + curr.nd, 0);
     const totalSumProcedures = searchedTableData.reduce((acc, curr) => acc + curr.total, 0);
 
+    const daysCount = Math.max(activeFilteredReports.length, 1);
     const procedureRows = searchedTableData.map((item, index) => {
       const categoryInfo = CATEGORIES.find(c => c.key === item.category);
       const prices = ESTIMATE_PRICES[item.category as keyof typeof ESTIMATE_PRICES] || { bh: 0, nd: 0 };
       const rev = (item.bh * (prices.bh || 0)) + (item.nd * (prices.nd || 0));
+      const avgPerDayValue = item.total / daysCount;
+      const formattedAvg = avgPerDayValue.toLocaleString('vi-VN', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 1
+      });
+      const avgCellText = item.total === 0 ? '-' : formattedAvg;
 
       const prevTotal = previousStats ? (previousStats.stats?.procedureMap[item.id]?.count || 0) : 0;
       let changeText = "-";
@@ -913,6 +931,7 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
           ${visibleColumns.bh ? `<td style="padding: 6px; text-align: center; color: #0369a1; font-weight: 500;">${item.bh.toLocaleString('vi-VN')}</td>` : ''}
           ${visibleColumns.nd ? `<td style="padding: 6px; text-align: center; color: #15803d; font-weight: 500;">${item.nd.toLocaleString('vi-VN')}</td>` : ''}
           ${visibleColumns.total ? `<td style="padding: 6px; text-align: center; font-weight: bold; background-color: #f8fafc;">${item.total.toLocaleString('vi-VN')}</td>` : ''}
+          ${visibleColumns.avgPerDay ? `<td style="padding: 6px; text-align: center; font-family: monospace; font-weight: bold; color: #c2410c;">${avgCellText}</td>` : ''}
           ${visibleColumns.change ? `<td style="padding: 6px; text-align: center; font-size: 9.5px; ${changeColor}">${changeText}</td>` : ''}
           ${visibleColumns.revenue ? `<td style="padding: 6px; text-align: right; font-weight: bold; color: #1e293b;">${rev.toLocaleString('vi-VN')} VNĐ</td>` : ''}
         </tr>
@@ -1106,6 +1125,7 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
                 ${visibleColumns.bh ? `<th style="width: 90px;">Bảo hiểm (BH)</th>` : ''}
                 ${visibleColumns.nd ? `<th style="width: 90px;">Dịch vụ (ND)</th>` : ''}
                 ${visibleColumns.total ? `<th style="width: 80px;">Tổng số ca</th>` : ''}
+                ${visibleColumns.avgPerDay ? `<th style="width: 80px;">Trung bình/ngày</th>` : ''}
                 ${visibleColumns.change ? `<th style="width: 100px;">Tăng/Giảm (vs. trước)</th>` : ''}
                 ${visibleColumns.revenue ? `<th style="width: 130px; text-align: right;">Dự thu phân tích</th>` : ''}
               </tr>
@@ -1117,6 +1137,7 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
                 ${visibleColumns.bh ? `<td style="text-align: center; color: #0369a1;">${totalBhProcedures.toLocaleString('vi-VN')}</td>` : ''}
                 ${visibleColumns.nd ? `<td style="text-align: center; color: #15803d;">${totalNdProcedures.toLocaleString('vi-VN')}</td>` : ''}
                 ${visibleColumns.total ? `<td style="text-align: center; font-weight: bold; background-color: #f1f5f9;">${totalSumProcedures.toLocaleString('vi-VN')}</td>` : ''}
+                ${visibleColumns.avgPerDay ? `<td style="text-align: center; font-weight: bold; color: #c2410c;">${(totalSumProcedures / daysCount).toLocaleString('vi-VN', { minimumFractionDigits: 0, maximumFractionDigits: 1 })}</td>` : ''}
                 ${visibleColumns.change ? `<td style="text-align: center;">-</td>` : ''}
                 ${visibleColumns.revenue ? `<td style="text-align: right; font-weight: bold; color: #1e293b;">${sumRevenueProcedures.toLocaleString('vi-VN')} VNĐ</td>` : ''}
               </tr>
@@ -1658,6 +1679,7 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
                           { key: 'bh', label: 'Bảo hiểm (BH)' },
                           { key: 'nd', label: 'Dịch vụ (ND)' },
                           { key: 'total', label: 'Tổng số ca' },
+                          { key: 'avgPerDay', label: 'Trung bình/ngày' },
                           { key: 'change', label: 'Tăng/Giảm (vs. trước)' },
                           { key: 'revenue', label: 'Dự thu phân tích' },
                         ].map(({ key, label }) => {
@@ -1692,6 +1714,7 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
                               bh: true,
                               nd: true,
                               total: true,
+                              avgPerDay: true,
                               change: true,
                               revenue: true,
                             };
@@ -1712,6 +1735,7 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
                               bh: true,
                               nd: true,
                               total: true,
+                              avgPerDay: true,
                               change: true,
                               revenue: true,
                             };
@@ -1741,6 +1765,7 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
                 {visibleColumns.bh && <th className="px-4 py-3.5 w-32 text-center text-sky-300">Bảo hiểm (BH)</th>}
                 {visibleColumns.nd && <th className="px-4 py-3.5 w-32 text-center text-emerald-300">Dịch vụ (ND)</th>}
                 {visibleColumns.total && <th className="px-5 py-3.5 w-32 text-center bg-slate-900 text-amber-400">Tổng số ca</th>}
+                {visibleColumns.avgPerDay && <th className="px-4 py-3.5 w-36 text-center text-orange-300">Trung bình/ngày</th>}
                 {visibleColumns.change && <th className="px-4 py-3.5 w-36 text-center text-rose-300">Tăng/Giảm (vs. trước)</th>}
                 {visibleColumns.revenue && <th className="px-5 py-3.5 w-42 text-right text-yellow-300">Dự thu phân tích</th>}
               </tr>
@@ -1842,6 +1867,11 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
                       {visibleColumns.total && (
                         <td className="px-5 py-3 text-center font-mono font-extrabold text-[14.5px] text-slate-950 bg-slate-50/50">
                           {item.total || '-'}
+                        </td>
+                      )}
+                      {visibleColumns.avgPerDay && (
+                        <td className="px-4 py-3 text-center font-mono font-black text-sm text-orange-700 bg-orange-50/15">
+                          {item.total === 0 ? '-' : (item.total / Math.max(activeFilteredReports.length, 1)).toLocaleString('vi-VN', { minimumFractionDigits: 0, maximumFractionDigits: 1 })}
                         </td>
                       )}
                       {visibleColumns.change && (

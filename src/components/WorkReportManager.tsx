@@ -579,118 +579,6 @@ export default function WorkReportManager({ currentUser, systemSettings }: WorkR
           </div>
         </div>
 
-        {/* Create new Report modal (inline form) */}
-        {showAddForm && (
-          <form onSubmit={handleCreateReport} className="bg-gradient-to-br from-indigo-50/50 to-white border border-indigo-100 rounded-xl p-4 shadow-sm space-y-3 animate-slide-in">
-            <div className="flex items-center justify-between border-b border-indigo-100/50 pb-1.5">
-              <span className="text-[11px] font-black uppercase tracking-wider text-indigo-950 flex items-center gap-1">
-                <FileText className="w-3.5 h-3.5" />
-                Tạo kiến nghị mới
-              </span>
-              <button 
-                type="button" 
-                onClick={() => setShowAddForm(false)} 
-                className="text-slate-450 hover:text-slate-700 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <div>
-                <label className="block text-[8px] font-black uppercase text-slate-400 tracking-wider mb-1">
-                  Phân loại ý kiến
-                </label>
-                <div className="grid grid-cols-3 gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setNewCategory('report')}
-                    className={`py-1.5 px-1 text-[9.5px] font-black rounded-lg border transition ${
-                      newCategory === 'report' 
-                        ? 'bg-emerald-500 text-white border-emerald-500' 
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    Báo cáo việc
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewCategory('suggestion')}
-                    className={`py-1.5 px-1 text-[9.5px] font-black rounded-lg border transition ${
-                      newCategory === 'suggestion' 
-                        ? 'bg-indigo-600 text-white border-indigo-600' 
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    Mở đóng góp
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewCategory('request')}
-                    className={`py-1.5 px-1 text-[9.5px] font-black rounded-lg border transition ${
-                      newCategory === 'request' 
-                        ? 'bg-amber-500 text-white border-amber-500' 
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    Ý kiến chỉ đạo
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wide mb-1">Tiêu đề phát ngôn</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ghi nhận vấn đề / yêu cầu..."
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wide mb-1">Nội dung chi tiết</label>
-                <textarea
-                  required
-                  rows={4}
-                  placeholder="Mô tả cụ thể sự việc, đề xuất hướng giải quyết..."
-                  value={newContent}
-                  onChange={(e) => setNewContent(e.target.value)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setShowAddForm(false)}
-                className="px-3 py-1.5 text-[10.5px] font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition"
-              >
-                Hủy bỏ
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="px-4 py-1.5 text-[10.5px] font-black text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-55 rounded-lg shadow-3xs transition flex items-center gap-1"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Đang gửi...
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-3 h-3" />
-                    Gửi yêu cầu
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        )}
       </div>
 
       {/* RIGHT AREA: WIDE DISCIPLINED GRID OF REPORTS (9 Cols) */}
@@ -1411,6 +1299,138 @@ export default function WorkReportManager({ currentUser, systemSettings }: WorkR
               </button>
             </div>
           </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Floating Create Report Modal (Cửa sổ nổi Tạo kiến nghị mới) */}
+      {showAddForm && createPortal(
+        <div 
+          className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in text-slate-850"
+          onClick={() => {
+            if (!isSubmitting) setShowAddForm(false);
+          }}
+        >
+          <form 
+            onSubmit={handleCreateReport} 
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl flex flex-col overflow-hidden animate-zoom-in p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
+              <span className="text-sm font-black uppercase tracking-wider text-slate-900 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-indigo-650 animate-pulse" />
+                Tạo kiến nghị mới
+              </span>
+              <button 
+                type="button" 
+                onClick={() => {
+                  if (!isSubmitting) setShowAddForm(false);
+                }} 
+                className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-1 rounded-full transition cursor-pointer select-none"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content Form Fields */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[9.5px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                  Phân loại ý kiến
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewCategory('report')}
+                    className={`py-2 px-3 text-xs font-bold rounded-lg border text-center transition cursor-pointer select-none active:scale-98 ${
+                      newCategory === 'report' 
+                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-3xs' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Báo cáo việc
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCategory('suggestion')}
+                    className={`py-2 px-3 text-xs font-bold rounded-lg border text-center transition cursor-pointer select-none active:scale-98 ${
+                      newCategory === 'suggestion' 
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-3xs' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Mở đóng góp
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCategory('request')}
+                    className={`py-2 px-3 text-xs font-bold rounded-lg border text-center transition cursor-pointer select-none active:scale-98 ${
+                      newCategory === 'request' 
+                        ? 'bg-amber-500 text-white border-amber-500 shadow-3xs' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Ý kiến chỉ đạo
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[9.5px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Tiêu đề phát ngôn</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ghi nhận vấn đề / yêu cầu..."
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  className="w-full text-xs border border-slate-200/90 rounded-lg p-2.5 bg-slate-50/20 focus:bg-white focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[9.5px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Nội dung chi tiết</label>
+                <textarea
+                  required
+                  rows={4}
+                  placeholder="Mô tả cụ thể sự việc, đề xuất hướng giải quyết..."
+                  value={newContent}
+                  onChange={(e) => setNewContent(e.target.value)}
+                  className="w-full text-xs border border-slate-200/90 rounded-lg p-2.5 bg-slate-50/20 focus:bg-white focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition leading-relaxed font-medium"
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer actions */}
+            <div className="flex justify-end items-center gap-3 border-t border-slate-100 pt-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isSubmitting) setShowAddForm(false);
+                }}
+                className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer select-none"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="px-5 py-2 text-xs font-black text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-55 rounded-lg shadow-3xs transition flex items-center gap-1.5 cursor-pointer select-none active:scale-98"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Đang gửi...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    Gửi yêu cầu
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
         </div>,
         document.body
       )}
