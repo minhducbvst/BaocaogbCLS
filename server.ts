@@ -1850,7 +1850,7 @@ function generateFallbackForecast(activeReports: any[]) {
 
 // 6. Google Sheets API Sync Endpoint
 app.post("/api/sheets/sync", async (req, res) => {
-  const { month, year, accessToken, spreadsheetUrl, syncAllMonth, date } = req.body;
+  const { month, year, accessToken, spreadsheetUrl, syncAllMonth, date, syncType, overwrite } = req.body;
 
   if (!accessToken) {
     return res.status(400).json({ error: "Thiếu Access Token từ Google. Vui lòng kết nối tài khoản." });
@@ -1895,7 +1895,7 @@ app.post("/api/sheets/sync", async (req, res) => {
       } catch (e) {
         metaErrData = { error: { message: `HTTP status text: ${metaResponse.statusText}` } };
       }
-      console.error("Google Sheets Metadata API Error:", metaErrData);
+      console.warn("Google Sheets Metadata API Sync Warning:", JSON.stringify(metaErrData));
       const status = metaResponse.status;
       if (status === 401) {
         return res.status(401).json({
@@ -1930,115 +1930,15 @@ app.post("/api/sheets/sync", async (req, res) => {
     }));
     existingSheetTitles = sheetsList.map((s: any) => s.title);
   } catch (err: any) {
-    console.error("Sheets Metadata Network Error:", err);
+    console.warn("Sheets Metadata Network Error Sync Details:", err?.message || err);
     return res.status(500).json({ error: "Không thể kết nối máy chủ Google API để xác thực quyền truy cập: " + (err.message || "") });
   }
 
-  // 2. Resolve or dynamically create the target sheet tab (Tháng X)
-  const sheetNameNormal = `Tháng ${month}`;
-  const sheetNamePad = `Tháng ${String(month).padStart(2, "0")}`;
-  
-  let resolvedSheetName = "";
-  let targetSheetInfo: any = null;
-
-  if (existingSheetTitles.includes(sheetNameNormal)) {
-    resolvedSheetName = sheetNameNormal;
-    targetSheetInfo = sheetsList.find((s: any) => s.title === sheetNameNormal);
-  } else if (existingSheetTitles.includes(sheetNamePad)) {
-    resolvedSheetName = sheetNamePad;
-    targetSheetInfo = sheetsList.find((s: any) => s.title === sheetNamePad);
-  } else {
-        // Dynamically create the sheet tab name if it doesn't exist
-    try {
-      const createSheetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
-      const createResponse = await fetch(createSheetUrl, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${cleanToken}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          requests: [
-            {
-              addSheet: {
-                properties: {
-                  title: sheetNameNormal,
-                  gridProperties: {
-                    rowCount: 100,
-                    columnCount: 70
-                  }
-                }
-              }
-            }
-          ]
-        })
-      });
-
-      if (createResponse.ok) {
-        resolvedSheetName = sheetNameNormal;
-        const createResData = await createResponse.json() as any;
-        const addedSheetProperties = createResData.replies?.[0]?.addSheet?.properties;
-        if (addedSheetProperties) {
-          targetSheetInfo = {
-            title: addedSheetProperties.title,
-            sheetId: addedSheetProperties.sheetId,
-            columnCount: addedSheetProperties.gridProperties?.columnCount || 70
-          };
-        }
-      } else {
-        const createErr = await createResponse.json() as any;
-        console.error("Failed to create sheet tab dynamically:", createErr);
-        resolvedSheetName = sheetNameNormal; // Fallback
-      }
-    } catch (e) {
-      console.error("Error dynamically adding sheet tab:", e);
-      resolvedSheetName = sheetNameNormal; // Fallback
-    }
-  }
-
-  // 3. Ensure the target sheet has enough columns to prevent 400 Bad Request (Requested writing past end of sheet)
-  if (targetSheetInfo && targetSheetInfo.columnCount < 70) {
-    try {
-      console.log(`Expanding columns of Sheet API from ${targetSheetInfo.columnCount} to 70...`);
-      const updateSheetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
-      const updateResponse = await fetch(updateSheetUrl, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${cleanToken}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          requests: [
-            {
-              updateSheetProperties: {
-                properties: {
-                  sheetId: targetSheetInfo.sheetId,
-                  gridProperties: {
-                    rowCount: Math.max(100, targetSheetInfo.rowCount || 0),
-                    columnCount: 70
-                  }
-                },
-                fields: "gridProperties.columnCount"
-              }
-            }
-          ]
-        })
-      });
-      if (!updateResponse.ok) {
-        const updateErr = await updateResponse.json() as any;
-        console.warn("Failed to expand sheet columns dynamically:", updateErr);
-      }
-    } catch (e) {
-      console.error("Error expanding sheet columns:", e);
-    }
-  }
-
-  // Determine which reports to sync
+  // Determine which reports to sync based on syncType
   let reportsToSync: any[] = [];
-  if (syncAllMonth) {
-    const prefix = `${year}-${String(month).padStart(2, "0")}-`;
-    reportsToSync = reports.filter(r => r.date.startsWith(prefix) && (r.status === "approved" || r.status === "submitted"));
-  } else {
+  const typeOfSync = syncType || (syncAllMonth ? 'month' : 'day');
+
+  if (typeOfSync === 'day') {
     if (!date) {
       return res.status(400).json({ error: "Thiếu ngày cần đồng bộ." });
     }
@@ -2048,13 +1948,150 @@ app.post("/api/sheets/sync", async (req, res) => {
     } else {
       return res.status(404).json({ error: `Không tìm thấy báo cáo đã duyệt hoặc gửi cho ngày ${date}.` });
     }
+  } else if (typeOfSync === 'week') {
+    if (!date) {
+      return res.status(400).json({ error: "Thiếu ngày để xác định tuần cần đồng bộ." });
+    }
+    const d = new Date(date);
+    const dayOfWeek = d.getDay(); // 0 is Sunday, 1 is Monday ...
+    const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + distanceToMonday);
+
+    const weekDates: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const dayDate = new Date(monday);
+      dayDate.setDate(monday.getDate() + i);
+      const y = dayDate.getFullYear();
+      const m = String(dayDate.getMonth() + 1).padStart(2, '0');
+      const dayNum = String(dayDate.getDate()).padStart(2, '0');
+      weekDates.push(`${y}-${m}-${dayNum}`);
+    }
+
+    reportsToSync = reports.filter(r => weekDates.includes(r.date) && (r.status === "approved" || r.status === "submitted"));
+  } else if (typeOfSync === 'month') {
+    const prefix = `${year}-${String(month).padStart(2, "0")}-`;
+    reportsToSync = reports.filter(r => r.date.startsWith(prefix) && (r.status === "approved" || r.status === "submitted"));
+  } else if (typeOfSync === 'year') {
+    const prefix = `${year}-`;
+    reportsToSync = reports.filter(r => r.date.startsWith(prefix) && (r.status === "approved" || r.status === "submitted"));
+  } else if (typeOfSync === 'all') {
+    reportsToSync = reports.filter(r => (r.status === "approved" || r.status === "submitted"));
   }
 
   if (reportsToSync.length === 0) {
     return res.status(404).json({ error: "Không có dữ liệu báo cáo (đã duyệt hoặc gửi) nào phù hợp để đồng bộ." });
   }
 
-  const sheetName = resolvedSheetName;
+  // Find unique months across reports to sync
+  const uniqueMonths = Array.from(new Set(reportsToSync.map(r => {
+    const parts = r.date.split("-");
+    const y = parts[0];
+    const m = parseInt(parts[1], 10);
+    return `${y}-${m}`;
+  })));
+
+  const resolvedSheetNamesMap: { [key: string]: string } = {};
+
+  for (const ymKey of uniqueMonths) {
+    const [y, mVal] = ymKey.split("-");
+    const mNum = parseInt(mVal, 10);
+    const sheetNameNormal = `Tháng ${mNum}`;
+    const sheetNamePad = `Tháng ${String(mNum).padStart(2, "0")}`;
+
+    let resolvedSheetName = "";
+    let targetSheetInfo = sheetsList.find((s: any) => s.title === sheetNameNormal || s.title === sheetNamePad);
+
+    if (targetSheetInfo) {
+      resolvedSheetName = targetSheetInfo.title;
+    } else {
+      // Dynamically create the sheet tab name if it doesn't exist
+      try {
+        const createSheetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
+        const createResponse = await fetch(createSheetUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${cleanToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            requests: [
+              {
+                addSheet: {
+                  properties: {
+                    title: sheetNameNormal,
+                    gridProperties: {
+                      rowCount: 100,
+                      columnCount: 70
+                    }
+                  }
+                }
+              }
+            ]
+          })
+        });
+
+        if (createResponse.ok) {
+          resolvedSheetName = sheetNameNormal;
+          const createResData = await createResponse.json() as any;
+          const addedSheetProperties = createResData.replies?.[0]?.addSheet?.properties;
+          if (addedSheetProperties) {
+            targetSheetInfo = {
+              title: addedSheetProperties.title,
+              sheetId: addedSheetProperties.sheetId,
+              columnCount: addedSheetProperties.gridProperties?.columnCount || 70
+            };
+          }
+        } else {
+          const createErr = await createResponse.json() as any;
+          console.warn("Failed to create sheet tab dynamically:", JSON.stringify(createErr));
+          resolvedSheetName = sheetNameNormal; // Fallback
+        }
+      } catch (e: any) {
+        console.warn("Error dynamically adding sheet tab:", e?.message || e);
+        resolvedSheetName = sheetNameNormal; // Fallback
+      }
+    }
+
+    // Ensure target sheet has at least 70 columns
+    if (targetSheetInfo && targetSheetInfo.columnCount < 70) {
+      try {
+        console.log(`Expanding columns of Sheet API from ${targetSheetInfo.columnCount} to 70...`);
+        const updateSheetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
+        const updateResponse = await fetch(updateSheetUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${cleanToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            requests: [
+              {
+                updateSheetProperties: {
+                  properties: {
+                    sheetId: targetSheetInfo.sheetId,
+                    gridProperties: {
+                      rowCount: Math.max(100, targetSheetInfo.rowCount || 0),
+                      columnCount: 70
+                    }
+                  },
+                  fields: "gridProperties.columnCount"
+                }
+              }
+            ]
+          })
+        });
+        if (!updateResponse.ok) {
+          const updateErr = await updateResponse.json() as any;
+          console.warn("Failed to expand sheet columns dynamically:", updateErr);
+        }
+      } catch (e: any) {
+        console.warn("Error expanding sheet columns:", e?.message || e);
+      }
+    }
+
+    resolvedSheetNamesMap[ymKey] = resolvedSheetName || sheetNameNormal;
+  }
 
   // Helper to map colIndex to Letter
   const getColLetter = (idx: number): string => {
@@ -2080,10 +2117,15 @@ app.post("/api/sheets/sync", async (req, res) => {
   // Synchronize each report's columns
   for (const rep of reportsToSync) {
     // Extract day of month
-    const dMatch = rep.date.match(/-(\d{2})$/);
-    if (!dMatch) continue;
-    const day = parseInt(dMatch[1]);
+    const parts = rep.date.split("-");
+    if (parts.length < 3) continue;
+    const repYear = parts[0];
+    const repMonth = parseInt(parts[1], 10);
+    const day = parseInt(parts[2], 10);
     if (isNaN(day) || day < 1 || day > 31) continue;
+
+    const ymKey = `${repYear}-${repMonth}`;
+    const sheetName = resolvedSheetNamesMap[ymKey] || `Tháng ${repMonth}`;
 
     // Calculate column indexes: Day 1 maps to column index 2 (C) and 3 (D)
     const colBhIdx = day * 2;
@@ -2212,7 +2254,7 @@ app.post("/api/sheets/sync", async (req, res) => {
     const resultData = await response.json();
 
     if (!response.ok) {
-      console.error("Google Sheets API Error Response:", resultData);
+      console.warn("Google Sheets API Warning Response:", JSON.stringify(resultData));
       const errMsg = resultData.error?.message || "Lỗi giao dịch với Google API.";
       return res.status(response.status).json({ 
         error: `Không thể cập nhật Google Sheets: ${errMsg}`,
@@ -2221,27 +2263,43 @@ app.post("/api/sheets/sync", async (req, res) => {
     }
 
     // Ghi nhận Audit Log
+    let detailsLogText = "";
+    let successMsgText = "";
+
+    if (typeOfSync === 'day') {
+      detailsLogText = `Đồng bộ số liệu báo cáo ngày ${date} lên Google Sheets`;
+      successMsgText = `Đã đồng bộ thành công dữ liệu ngày ${date} lên Google Sheets.`;
+    } else if (typeOfSync === 'week') {
+      detailsLogText = `Đồng bộ số liệu báo cáo tuần chứa ngày ${date} lên Google Sheets (${reportsToSync.length} ngày)`;
+      successMsgText = `Đã đồng bộ thành công dữ liệu tuần chứa ngày ${date} lên Google Sheets.`;
+    } else if (typeOfSync === 'month') {
+      detailsLogText = `Đồng bộ báo cáo Tháng ${month}/${year} lên Google Sheets (${reportsToSync.length} ngày)`;
+      successMsgText = `Đã đồng bộ thành công dữ liệu của báo cáo Tháng ${month}/${year}.`;
+    } else if (typeOfSync === 'year') {
+      detailsLogText = `Đồng bộ báo cáo cả năm ${year} lên Google Sheets (${reportsToSync.length} ngày)`;
+      successMsgText = `Đã đồng bộ thành công dữ liệu năm ${year} lên Google Sheets.`;
+    } else if (typeOfSync === 'all') {
+      detailsLogText = `Đồng bộ toàn bộ báo cáo trong hệ thống lên Google Sheets (${reportsToSync.length} ngày)`;
+      successMsgText = `Đã đồng bộ toàn bộ dữ liệu báo cáo trong hệ thống lên Google Sheets (${reportsToSync.length} ngày).`;
+    }
+
     serverAuditLogs.unshift({
       id: "log_" + Date.now(),
       actor: req.body.activeUser || "Hệ thống",
       action: "Đồng bộ Google Sheets",
-      details: syncAllMonth 
-        ? `Đồng bộ toàn bộ báo cáo Tháng ${month}/${year} lên Google Sheets (${reportsToSync.length} ngày)`
-        : `Đồng bộ số liệu báo cáo ngày ${date} lên Google Sheets`,
+      details: detailsLogText,
       timestamp: new Date().toISOString()
     });
 
     res.json({
       success: true,
-      message: syncAllMonth 
-        ? `Đã đồng bộ thành công dữ liệu của ${reportsToSync.length} ngày của Tháng ${month}/${year}.`
-        : `Đã đồng bộ thành công dữ liệu ngày ${date} lên Google Sheets.`,
+      message: successMsgText,
       updatedRangesCount: dataPayload.length,
       details: resultData
     });
 
   } catch (err: any) {
-    console.error("Sheets Network Error:", err);
+    console.warn("Sheets Network Error Warning:", err?.message || err);
     res.status(500).json({ 
       error: "Không thể kết nối đến máy chủ Google Sheets.", 
       details: err?.message || "" 
@@ -2251,7 +2309,7 @@ app.post("/api/sheets/sync", async (req, res) => {
 
 // 7. Google Sheets API Pull Endpoint
 app.post("/api/sheets/pull", async (req, res) => {
-  const { month, year, accessToken, spreadsheetUrl, pullAllMonth, date, activeUser } = req.body;
+  const { month, year, accessToken, spreadsheetUrl, pullAllMonth, date, activeUser, syncType, overwrite } = req.body;
 
   if (!accessToken) {
     return res.status(400).json({ error: "Thiếu Access Token từ Google. Vui lòng kết nối tài khoản." });
@@ -2295,7 +2353,7 @@ app.post("/api/sheets/pull", async (req, res) => {
       } catch (e) {
         metaErrData = { error: { message: `HTTP status text: ${metaResponse.statusText}` } };
       }
-      console.error("Google Sheets Metadata API Error:", metaErrData);
+      console.warn("Google Sheets Metadata API Pull Warning:", JSON.stringify(metaErrData));
       const status = metaResponse.status;
       if (status === 401) {
         return res.status(401).json({
@@ -2325,61 +2383,105 @@ app.post("/api/sheets/pull", async (req, res) => {
     }
     existingSheetTitles = (metaData.sheets || []).map((s: any) => s.properties?.title || "");
   } catch (err: any) {
-    console.error("Sheets Metadata Network Error:", err);
+    console.warn("Sheets Metadata Network Error Pull Details:", err?.message || err);
     return res.status(500).json({ error: "Không thể kết nối máy chủ Google API để xác thực quyền truy cập: " + (err.message || "") });
   }
 
-  const sheetNameNormal = `Tháng ${month}`;
-  const sheetNamePad = `Tháng ${String(month).padStart(2, "0")}`;
-  
-  let resolvedSheetName = "";
-  if (existingSheetTitles.includes(sheetNameNormal)) {
-    resolvedSheetName = sheetNameNormal;
-  } else if (existingSheetTitles.includes(sheetNamePad)) {
-    resolvedSheetName = sheetNamePad;
-  } else {
+  // Determine which dates we want to pull
+  const typeOfPull = syncType || (pullAllMonth ? 'month' : 'day');
+  const datesToPull: string[] = [];
+
+  if (typeOfPull === 'day') {
+    if (!date) {
+      return res.status(400).json({ error: "Thiếu ngày cần tải xuống." });
+    }
+    datesToPull.push(date);
+  } else if (typeOfPull === 'week') {
+    if (!date) {
+      return res.status(400).json({ error: "Thiếu ngày để xác định tuần cần tải xuống." });
+    }
+    const d = new Date(date);
+    const dayOfWeek = d.getDay();
+    const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + distanceToMonday);
+    for (let i = 0; i < 7; i++) {
+      const dayDate = new Date(monday);
+      dayDate.setDate(monday.getDate() + i);
+      const y = dayDate.getFullYear();
+      const m = String(dayDate.getMonth() + 1).padStart(2, '0');
+      const dayNum = String(dayDate.getDate()).padStart(2, '0');
+      datesToPull.push(`${y}-${m}-${dayNum}`);
+    }
+  } else if (typeOfPull === 'month') {
+    const prefix = `${year}-${String(month).padStart(2, "0")}-`;
+    for (let d = 1; d <= 31; d++) {
+      datesToPull.push(`${prefix}${String(d).padStart(2, '0')}`);
+    }
+  } else if (typeOfPull === 'year' || typeOfPull === 'all') {
+    const monthTabs = existingSheetTitles.filter(t => t.match(/^Tháng\s+\d+$/i));
+    for (const tab of monthTabs) {
+      const mMatch = tab.match(/\d+/);
+      if (mMatch) {
+        const mNum = parseInt(mMatch[0], 10);
+        const prefix = `${year}-${String(mNum).padStart(2, "0")}-`;
+        for (let d = 1; d <= 31; d++) {
+          datesToPull.push(`${prefix}${String(d).padStart(2, '0')}`);
+        }
+      }
+    }
+  }
+
+  // Group dates to pull by Year-Month
+  const ymGroups: { [key: string]: { year: string; month: number; days: number[] } } = {};
+  for (const dt of datesToPull) {
+    const parts = dt.split("-");
+    if (parts.length < 3) continue;
+    const y = parts[0];
+    const m = parseInt(parts[1], 10);
+    const d = parseInt(parts[2], 10);
+    
+    const key = `${y}-${m}`;
+    if (!ymGroups[key]) {
+      ymGroups[key] = { year: y, month: m, days: [] };
+    }
+    ymGroups[key].days.push(d);
+  }
+
+  // Build range requests for standard C7:BL40 blocks
+  const rangesParams: string[] = [];
+  const groupKeys = Object.keys(ymGroups);
+  const resolvedGroupsMap: { [key: string]: string } = {};
+
+  for (const ymKey of groupKeys) {
+    const group = ymGroups[ymKey];
+    const sheetNameNormal = `Tháng ${group.month}`;
+    const sheetNamePad = `Tháng ${String(group.month).padStart(2, "0")}`;
+    
+    let resolvedName = "";
+    if (existingSheetTitles.includes(sheetNameNormal)) {
+      resolvedName = sheetNameNormal;
+    } else if (existingSheetTitles.includes(sheetNamePad)) {
+      resolvedName = sheetNamePad;
+    }
+    
+    if (resolvedName) {
+      rangesParams.push(`ranges=${encodeURIComponent(`'${resolvedName}'!C7:BL40`)}`);
+      resolvedGroupsMap[ymKey] = resolvedName;
+    }
+  }
+
+  if (rangesParams.length === 0) {
     return res.status(404).json({
-      error: `Không tìm thấy tab trang tính '${sheetNameNormal}' hay '${sheetNamePad}' trong bảng tính Google Sheets của bạn để tải dữ liệu.`
+      error: `Không tìm thấy bất kỳ trang tính dạng 'Tháng X' nào phù hợp trong Google Sheets để tải dữ liệu về.`
     });
   }
 
-  // Define Helper to translate colIndex to Letter
-  const getColLetter = (idx: number): string => {
-    let letter = "";
-    let temp = idx;
-    while (temp >= 0) {
-      letter = String.fromCharCode((temp % 26) + 65) + letter;
-      temp = Math.floor(temp / 26) - 1;
-    }
-    return letter;
-  };
-
-  // Determine the cell ranges to fetch
-  let selectColRange = "";
-  if (pullAllMonth) {
-    selectColRange = "C7:BL40";
-  } else {
-    if (!date) {
-      return res.status(400).json({ error: "Thiếu ngày cần tải về." });
-    }
-    const dMatch = date.match(/-(\d{2})$/);
-    if (!dMatch) {
-      return res.status(400).json({ error: "Định dạng ngày không hợp lệ." });
-    }
-    const dayNum = parseInt(dMatch[1]);
-    if (isNaN(dayNum) || dayNum < 1 || dayNum > 31) {
-      return res.status(400).json({ error: "Ngày không hợp lệ." });
-    }
-    const colBhLetter = getColLetter(dayNum * 2);
-    const colNdLetter = getColLetter(dayNum * 2 + 1);
-    selectColRange = `${colBhLetter}7:${colNdLetter}40`;
-  }
-
-  // Fetch the sheet range values using Google Sheets API
-  const sheetValuesUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'${encodeURIComponent(resolvedSheetName)}'!${selectColRange}`;
-  let rawRows: any[][] = [];
+  // Fetch all value ranges in one batchGet call
+  const batchGetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?${rangesParams.join("&")}`;
+  let valueRanges: any[] = [];
   try {
-    const valResponse = await fetch(sheetValuesUrl, {
+    const valResponse = await fetch(batchGetUrl, {
       headers: {
         "Authorization": `Bearer ${cleanToken}`
       }
@@ -2387,16 +2489,16 @@ app.post("/api/sheets/pull", async (req, res) => {
 
     if (!valResponse.ok) {
       const valErrData = await valResponse.json() as any;
-      console.error("Google Sheets Values API Error:", valErrData);
+      console.warn("Google Sheets Values API Warning:", JSON.stringify(valErrData));
       return res.status(valResponse.status).json({
         error: `Không thể đọc dữ liệu từ Google Sheets: ${valErrData.error?.message || "Lỗi đọc dữ liệu"}`
       });
     }
 
     const valData = await valResponse.json() as any;
-    rawRows = valData.values || [];
+    valueRanges = valData.valueRanges || [];
   } catch (err: any) {
-    console.error("Sheets Values Get Network Error:", err);
+    console.warn("Sheets Values Get Network Error Warning:", err?.message || err);
     return res.status(500).json({ error: "Không thể kết nối máy chủ Google API để đọc dữ liệu: " + (err.message || "") });
   }
 
@@ -2438,115 +2540,127 @@ app.post("/api/sheets/pull", async (req, res) => {
     null,                          // index 33, row 40 (xetNghiem SUM)
   ];
 
-  let daysToProcess: number[] = [];
-  if (pullAllMonth) {
-    // Process all 31 days mapping Columns C to BL
-    for (let d = 1; d <= 31; d++) {
-      daysToProcess.push(d);
-    }
-  } else {
-    const dMatch = date.match(/-(\d{2})$/);
-    if (dMatch) {
-      daysToProcess.push(parseInt(dMatch[1]));
-    }
-  }
-
   let countUpdated = 0;
   let countCreated = 0;
+  let countSkipped = 0;
 
-  for (const d of daysToProcess) {
-    // Compute date string e.g. "2026-03-05"
-    const targetDateStr = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  // Process fetched ranges
+  for (const ymKey of groupKeys) {
+    const group = ymGroups[ymKey];
+    const resolvedName = resolvedGroupsMap[ymKey];
+    if (!resolvedName) continue;
 
-    // Compute column indices relative to the selected block
-    let colBhIdx = 0;
-    let colNdIdx = 0;
+    // Find custom valueRange that matches
+    const valRange = valueRanges.find(r => r.range && r.range.includes(resolvedName));
+    if (!valRange) continue;
 
-    if (pullAllMonth) {
-      // Relative offset in range C7:BL40 (Column C is index 0)
-      colBhIdx = (d - 1) * 2;
-      colNdIdx = (d - 1) * 2 + 1;
-    } else {
-      // Only 2 columns were fetched, so colBhIdx = 0, colNdIdx = 1
-      colBhIdx = 0;
-      colNdIdx = 1;
-    }
+    const rawRows = valRange.values || [];
 
-    // Prepare items array
-    const parsedItems: any[] = [];
-    let hasData = false;
+    for (const d of group.days) {
+      const targetDateStr = `${group.year}-${String(group.month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
-    // Map rows in rawRows to items
-    rowItemIds.forEach((itemId, rIdx) => {
-      if (!itemId) return; // Skip SUM rows
+      // Column C in sheets matches (d-1)*2 index relative to base C
+      const colBhIdx = (d - 1) * 2;
+      const colNdIdx = (d - 1) * 2 + 1;
 
-      const rowData = rawRows[rIdx] || [];
-      const bhRaw = rowData[colBhIdx];
-      const ndRaw = rowData[colNdIdx];
+      // Prepare items array
+      const parsedItems: any[] = [];
+      let hasData = false;
 
-      const bhVal = (bhRaw !== undefined && bhRaw !== "") ? parseInt(bhRaw) : 0;
-      const ndVal = (ndRaw !== undefined && ndRaw !== "") ? parseInt(ndRaw) : 0;
+      // Map rows in rawRows to items
+      rowItemIds.forEach((itemId, rIdx) => {
+        if (!itemId) return; // Skip SUM rows
 
-      const bhNum = isNaN(bhVal) ? 0 : bhVal;
-      const ndNum = isNaN(ndVal) ? 0 : ndVal;
+        const rowData = rawRows[rIdx] || [];
+        const bhRaw = rowData[colBhIdx];
+        const ndRaw = rowData[colNdIdx];
 
-      if (bhNum > 0 || ndNum > 0) {
-        hasData = true;
-      }
+        const bhVal = (bhRaw !== undefined && bhRaw !== "") ? parseInt(bhRaw) : 0;
+        const ndVal = (ndRaw !== undefined && ndRaw !== "") ? parseInt(ndRaw) : 0;
 
-      // Find standard label & category from serverProcedures
-      const standardProc = serverProcedures.find(p => p.id === itemId);
-      parsedItems.push({
-        id: itemId,
-        name: standardProc?.name || itemId,
-        category: standardProc?.category || "other",
-        bh: bhNum,
-        nd: ndNum
+        const bhNum = isNaN(bhVal) ? 0 : bhVal;
+        const ndNum = isNaN(ndVal) ? 0 : ndVal;
+
+        if (bhNum > 0 || ndNum > 0) {
+          hasData = true;
+        }
+
+        // Find standard label & category from serverProcedures
+        const standardProc = serverProcedures.find(p => p.id === itemId);
+        parsedItems.push({
+          id: itemId,
+          name: standardProc?.name || itemId,
+          category: standardProc?.category || "other",
+          bh: bhNum,
+          nd: ndNum
+        });
       });
-    });
 
-    if (!hasData) {
-      // If the sheet has no data for this day, skip it unless we are syncing a single day
-      if (pullAllMonth) {
+      if (!hasData) {
+        // If the sheet has no data for this day, skip it
         continue; 
       }
-    }
 
-    // Now, insert or update this report in our in-memory DB
-    const existingIdx = reports.findIndex(r => r.date === targetDateStr);
-    if (existingIdx !== -1) {
-      reports[existingIdx] = {
-        ...reports[existingIdx],
-        items: parsedItems,
-        status: "approved",
-        approvedBy: activeUser || "Hệ thống (Google Sheets Pull)",
-        submittedAt: new Date().toISOString()
-      };
-      saveDocument("reports", targetDateStr, reports[existingIdx]);
-      countUpdated++;
-    } else {
-      const newReport = {
-        date: targetDateStr,
-        status: "approved",
-        submittedBy: "Hệ thống (Google Sheets Pull)",
-        submittedAt: new Date().toISOString(),
-        approvedBy: activeUser || "Hệ thống (Google Sheets Pull)",
-        items: parsedItems
-      };
-      reports.push(newReport);
-      saveDocument("reports", targetDateStr, newReport);
-      countCreated++;
+      // Check if report already exists in database
+      const existingIdx = reports.findIndex(r => r.date === targetDateStr);
+      if (existingIdx !== -1) {
+        // Respect overwrite choice if false
+        if (overwrite === false) {
+          countSkipped++;
+          continue; 
+        }
+
+        reports[existingIdx] = {
+          ...reports[existingIdx],
+          items: parsedItems,
+          status: "approved",
+          approvedBy: activeUser || "Hệ thống (Google Sheets Pull)",
+          submittedAt: new Date().toISOString()
+        };
+        saveDocument("reports", targetDateStr, reports[existingIdx]);
+        countUpdated++;
+      } else {
+        const newReport = {
+          date: targetDateStr,
+          status: "approved",
+          submittedBy: "Hệ thống (Google Sheets Pull)",
+          submittedAt: new Date().toISOString(),
+          approvedBy: activeUser || "Hệ thống (Google Sheets Pull)",
+          items: parsedItems
+        };
+        reports.push(newReport);
+        saveDocument("reports", targetDateStr, newReport);
+        countCreated++;
+      }
     }
   }
 
-  // Submit Audit Log
+  // Submit Audit Log and Notification
+  let detailsLog = "";
+  let successMessage = "";
+
+  if (typeOfPull === 'day') {
+    detailsLog = `Tải dữ liệu báo cáo ngày ${date} từ Google Sheets (Cập nhật: ${countUpdated}, Tạo mới: ${countCreated}, Bỏ qua: ${countSkipped})`;
+    successMessage = `Đã tải thành công dữ liệu ngày ${date} từ Google Sheets. (Cập nhật: ${countUpdated}, Tạo mới: ${countCreated}, Bỏ qua: ${countSkipped})`;
+  } else if (typeOfPull === 'week') {
+    detailsLog = `Tải dữ liệu tuần chứa ngày ${date} từ Google Sheets (Cập nhật: ${countUpdated}, Tạo mới: ${countCreated}, Bỏ qua: ${countSkipped})`;
+    successMessage = `Đã tải thành công dữ liệu tuần từ Google Sheets. (Cập nhật: ${countUpdated}, Tạo mới: ${countCreated}, Bỏ qua: ${countSkipped})`;
+  } else if (typeOfPull === 'month') {
+    detailsLog = `Tải toàn bộ số liệu của Tháng ${month}/${year} từ Google Sheets (Cập nhật: ${countUpdated}, Tạo mới: ${countCreated}, Bỏ qua: ${countSkipped})`;
+    successMessage = `Đã tải thành công toàn bộ số liệu của Tháng ${month}/${year} từ Google Sheets. (Cập nhật: ${countUpdated}, Tạo mới: ${countCreated}, Bỏ qua: ${countSkipped})`;
+  } else if (typeOfPull === 'year') {
+    detailsLog = `Tải toàn bộ số liệu của Năm ${year} từ Google Sheets (Cập nhật: ${countUpdated}, Tạo mới: ${countCreated}, Bỏ qua: ${countSkipped})`;
+    successMessage = `Đã tải thành công toàn bộ số liệu của Năm ${year} từ Google Sheets. (Cập nhật: ${countUpdated}, Tạo mới: ${countCreated}, Bỏ qua: ${countSkipped})`;
+  } else if (typeOfPull === 'all') {
+    detailsLog = `Tải toàn bộ số liệu các tháng hiện có từ Google Sheets (Cập nhật: ${countUpdated}, Tạo mới: ${countCreated}, Bỏ qua: ${countSkipped})`;
+    successMessage = `Đã tải thành công toàn bộ số liệu các tháng hiện có từ Google Sheets. (Cập nhật: ${countUpdated}, Tạo mới: ${countCreated}, Bỏ qua: ${countSkipped})`;
+  }
+
   const newLog = {
     id: "log_" + Date.now(),
     actor: activeUser || "Hệ thống",
     action: "Tải từ Google Sheets",
-    details: pullAllMonth 
-      ? `Tải dữ liệu toàn bộ báo cáo Tháng ${month}/${year} từ Google Sheets (Cập nhật: ${countUpdated} ngày, Khởi tạo: ${countCreated} ngày)`
-      : `Tải dữ liệu báo cáo ngày ${date} từ Google Sheets (Thành công)`,
+    details: detailsLog,
     timestamp: new Date().toISOString()
   };
   serverAuditLogs.unshift(newLog);
@@ -2556,7 +2670,7 @@ app.post("/api/sheets/pull", async (req, res) => {
   const newNotif = {
     id: "n_" + Date.now(),
     title: "Tải dữ liệu Google Sheets thành công",
-    content: `${activeUser || "Hệ thống"} đã kéo dữ liệu từ Google Sheets về (Cập nhật: ${countUpdated} ngày, Khởi tạo: ${countCreated} ngày).`,
+    content: `${activeUser || "Hệ thống"} đã tải dữ liệu Google Sheets: ${detailsLog}`,
     timestamp: new Date().toISOString(),
     type: "update" as 'meeting' | 'task' | 'update' | 'report' | 'system' | 'alert',
     read: false,
@@ -2566,11 +2680,10 @@ app.post("/api/sheets/pull", async (req, res) => {
 
   res.json({
     success: true,
-    message: pullAllMonth
-      ? `Đã tải và cập nhật thành công dữ liệu từ Google Sheets cho Tháng ${month}/${year}. (Cập nhật: ${countUpdated} ngày, Khởi tạo: ${countCreated} ngày)`
-      : `Đã tải thành công dữ liệu ngày ${date} từ Google Sheets.`,
+    message: successMessage,
     countUpdated,
-    countCreated
+    countCreated,
+    countSkipped
   });
 });
 

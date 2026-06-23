@@ -90,7 +90,7 @@ export default function App() {
     return sessionStorage.getItem('hospital-admin-authenticated') === 'true';
   });
   const [adminPasswordError, setAdminPasswordError] = useState('');
-  const [adminSubTab, setAdminSubTab] = useState<'staff' | 'depts' | 'logs'>('staff');
+  const [adminSubTab, setAdminSubTab] = useState<'staff' | 'depts' | 'logs' | 'procedures' | 'printSettings' | 'themeSettings' | 'googleSheets'>('staff');
   
   const [isSyncing, setIsSyncing] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);

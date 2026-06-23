@@ -43,8 +43,16 @@ export default function ClinicalReportTable({
   const [isPullingSheets, setIsPullingSheets] = useState(false);
   const [showSheetsConfig, setShowSheetsConfig] = useState(false);
   const [sheetsSyncMessage, setSheetsSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [confirmSheetSync, setConfirmSheetSync] = useState<{ syncAllMonth: boolean } | null>(null);
-  const [confirmSheetPull, setConfirmSheetPull] = useState<{ pullAllMonth: boolean } | null>(null);
+  const [confirmSheetSync, setConfirmSheetSync] = useState<{ timeRange: 'day' | 'week' | 'month' | 'year'; overwrite: boolean } | null>(null);
+  const [confirmSheetPull, setConfirmSheetPull] = useState<{ timeRange: 'day' | 'week' | 'month' | 'year'; overwrite: boolean } | null>(null);
+  const [syncDirection, setSyncDirection] = useState<'push' | 'pull'>('push');
+  const [syncTimeRange, setSyncTimeRange] = useState<'day' | 'week' | 'month' | 'year'>('day');
+  const [syncOverwrite, setSyncOverwrite] = useState<boolean>(true);
+  const [syncSelectedDate, setSyncSelectedDate] = useState<string>(activeDate);
+
+  useEffect(() => {
+    setSyncSelectedDate(activeDate);
+  }, [activeDate]);
 
   useEffect(() => {
     // Parse Google OAuth access token from window.location.hash
@@ -75,30 +83,35 @@ export default function ClinicalReportTable({
     window.location.href = authUrl;
   };
 
-  const handleSyncToSheets = (syncAllMonth: boolean) => {
-    if (!googleSpreadsheetUrl.trim()) {
-      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng nhập đường dẫn liên kết Google Sheets.' });
+  const handleSyncToSheets = (timeRange: 'day' | 'week' | 'month' | 'year', overwrite: boolean) => {
+    // Dynamically retrieve configured values from Admin settings stored in localStorage
+    const freshToken = localStorage.getItem('google_access_token') || '';
+    const freshUrl = localStorage.getItem('google_spreadsheet_url') || '';
+    
+    setGoogleAccessToken(freshToken);
+    setGoogleSpreadsheetUrl(freshUrl);
+
+    if (!freshUrl.trim()) {
+      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng thiết lập đường dẫn liên kết Google Sheets trong mục Quản trị hệ thống > Đồng bộ Google Sheets.' });
       return;
     }
-    if (!googleAccessToken.trim()) {
-      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng kết nối tài khoản Google hoặc nhập Access Token trước.' });
-      setShowSheetsConfig(true);
+    if (!freshToken.trim()) {
+      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng kết nối tài khoản Google hoặc nhập Access Token trong mục Quản trị hệ thống > Đồng bộ Google Sheets trước.' });
       return;
     }
 
-    setConfirmSheetSync({ syncAllMonth });
+    setConfirmSheetSync({ timeRange, overwrite });
   };
 
-  const proceedSyncToSheets = async (syncAllMonth: boolean) => {
+  const proceedSyncToSheets = async (timeRange: 'day' | 'week' | 'month' | 'year', overwrite: boolean) => {
     setIsSyncingSheets(true);
     setSheetsSyncMessage(null);
 
-    // Save configuration settings to localStorage
-    localStorage.setItem('google_access_token', googleAccessToken);
-    localStorage.setItem('google_spreadsheet_url', googleSpreadsheetUrl);
+    const freshToken = localStorage.getItem('google_access_token') || googleAccessToken;
+    const freshUrl = localStorage.getItem('google_spreadsheet_url') || googleSpreadsheetUrl;
 
     try {
-      const d = new Date(activeDate);
+      const d = new Date(syncSelectedDate);
       const month = d.getMonth() + 1; // 1-12
       const year = d.getFullYear();
 
@@ -110,10 +123,12 @@ export default function ClinicalReportTable({
         body: JSON.stringify({
           month,
           year,
-          accessToken: googleAccessToken,
-          spreadsheetUrl: googleSpreadsheetUrl,
-          syncAllMonth,
-          date: activeDate,
+          accessToken: freshToken,
+          spreadsheetUrl: freshUrl,
+          syncAllMonth: timeRange === 'month',
+          syncType: timeRange,
+          overwrite,
+          date: syncSelectedDate,
           activeUser: currentUser.name
         })
       });
@@ -141,30 +156,35 @@ export default function ClinicalReportTable({
     }
   };
 
-  const handlePullFromSheets = (pullAllMonth: boolean) => {
-    if (!googleSpreadsheetUrl.trim()) {
-      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng nhập đường dẫn liên kết Google Sheets.' });
+  const handlePullFromSheets = (timeRange: 'day' | 'week' | 'month' | 'year', overwrite: boolean) => {
+    // Dynamically retrieve configured values from Admin settings stored in localStorage
+    const freshToken = localStorage.getItem('google_access_token') || '';
+    const freshUrl = localStorage.getItem('google_spreadsheet_url') || '';
+
+    setGoogleAccessToken(freshToken);
+    setGoogleSpreadsheetUrl(freshUrl);
+
+    if (!freshUrl.trim()) {
+      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng thiết lập đường dẫn liên kết Google Sheets trong mục Quản trị hệ thống > Đồng bộ Google Sheets.' });
       return;
     }
-    if (!googleAccessToken.trim()) {
-      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng kết nối tài khoản Google hoặc nhập Access Token trước.' });
-      setShowSheetsConfig(true);
+    if (!freshToken.trim()) {
+      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng kết nối tài khoản Google hoặc nhập Access Token trong mục Quản trị hệ thống > Đồng bộ Google Sheets trước.' });
       return;
     }
 
-    setConfirmSheetPull({ pullAllMonth });
+    setConfirmSheetPull({ timeRange, overwrite });
   };
 
-  const proceedPullFromSheets = async (pullAllMonth: boolean) => {
+  const proceedPullFromSheets = async (timeRange: 'day' | 'week' | 'month' | 'year', overwrite: boolean) => {
     setIsPullingSheets(true);
     setSheetsSyncMessage(null);
 
-    // Save configuration settings to localStorage
-    localStorage.setItem('google_access_token', googleAccessToken);
-    localStorage.setItem('google_spreadsheet_url', googleSpreadsheetUrl);
+    const freshToken = localStorage.getItem('google_access_token') || googleAccessToken;
+    const freshUrl = localStorage.getItem('google_spreadsheet_url') || googleSpreadsheetUrl;
 
     try {
-      const d = new Date(activeDate);
+      const d = new Date(syncSelectedDate);
       const month = d.getMonth() + 1; // 1-12
       const year = d.getFullYear();
 
@@ -176,10 +196,12 @@ export default function ClinicalReportTable({
         body: JSON.stringify({
           month,
           year,
-          accessToken: googleAccessToken,
-          spreadsheetUrl: googleSpreadsheetUrl,
-          pullAllMonth,
-          date: activeDate,
+          accessToken: freshToken,
+          spreadsheetUrl: freshUrl,
+          pullAllMonth: timeRange === 'month',
+          syncType: timeRange,
+          overwrite,
+          date: syncSelectedDate,
           activeUser: currentUser.name
         })
       });
@@ -1256,143 +1278,279 @@ export default function ClinicalReportTable({
                 </p>
               </div>
             </div>
+          </div>
 
-            <div className="flex items-center gap-2 self-end sm:self-auto">
+          {/* Main Action Type Selection: Push vs Pull */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+            <button
+              type="button"
+              onClick={() => setSyncDirection('push')}
+              className={`p-4 rounded-xl border text-left transition duration-200 cursor-pointer ${
+                syncDirection === 'push'
+                  ? 'bg-indigo-50/50 dark:bg-indigo-950/10 border-indigo-500/70 dark:border-indigo-500 ring-2 ring-indigo-500/10 shadow-sm'
+                  : 'bg-white dark:bg-slate-950/45 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/40'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <span className={`p-2 rounded-lg shrink-0 ${
+                  syncDirection === 'push'
+                    ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                }`}>
+                  <UploadCloud className="w-5 h-5" />
+                </span>
+                <div className="space-y-0.5">
+                  <span className="text-xs font-black text-slate-850 dark:text-slate-200 block font-sans">ĐỒNG BỘ LÊN GOOGLE SHEETS 📤</span>
+                  <span className="text-[10.5px] text-slate-500 dark:text-slate-450 font-semibold block leading-normal">Đẩy dữ liệu từ Clinis lên file Google Sheets</span>
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSyncDirection('pull')}
+              className={`p-4 rounded-xl border text-left transition duration-200 cursor-pointer ${
+                syncDirection === 'pull'
+                  ? 'bg-emerald-50/50 dark:bg-emerald-950/10 border-emerald-500/70 dark:border-emerald-500 ring-2 ring-emerald-500/10 shadow-sm'
+                  : 'bg-white dark:bg-slate-950/45 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/40'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <span className={`p-2 rounded-lg shrink-0 ${
+                  syncDirection === 'pull'
+                    ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                }`}>
+                  <DownloadCloud className="w-5 h-5" />
+                </span>
+                <div className="space-y-0.5">
+                  <span className="text-xs font-black text-slate-850 dark:text-slate-200 block font-sans">TAI DỮ LIỆU XUỐNG CLINIS 📥</span>
+                  <span className="text-[10.5px] text-slate-500 dark:text-slate-450 font-semibold block leading-normal">Tải số liệu từ Google Sheets về lưu trữ ở Clinis</span>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          {/* Configuration sub-options */}
+          <div className="p-4 bg-white dark:bg-slate-950/30 border border-slate-200 dark:border-slate-800/80 rounded-xl space-y-4 shadow-4xs">
+            {/* 1. Time selection */}
+            <div className="space-y-2">
+              <span className="text-[11px] font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5 font-sans">
+                📅 LỰA CHỌN PHẠM VI THỜI GIAN:
+              </span>
+              <div className="flex flex-col sm:flex-row gap-3">
+                {/* Left side: Range Selector Dropdown */}
+                <div className="w-full sm:w-1/3 flex flex-col gap-1.5">
+                  <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 dark:text-slate-500">Đơn vị thời gian</label>
+                  <div className="relative">
+                    <select
+                      value={syncTimeRange}
+                      onChange={(e) => setSyncTimeRange(e.target.value as any)}
+                      className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition cursor-pointer appearance-none"
+                    >
+                      <option value="day">📅 Theo Ngày</option>
+                      <option value="week">🗓️ Theo Tuần</option>
+                      <option value="month">📊 Theo Tháng</option>
+                      <option value="year">⭐ Theo Năm</option>
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-500">
+                      <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                        <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right side: Dependent Adjustor */}
+                <div className="w-full sm:w-2/3 flex flex-col gap-1.5">
+                  <label className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 dark:text-slate-500">Chi tiết thời gian lựa chọn</label>
+                  
+                  {syncTimeRange === 'day' && (
+                    <div className="flex items-center justify-between px-3.5 py-2 rounded-lg border border-indigo-500/30 bg-indigo-50/15 dark:bg-indigo-950/10 text-indigo-700 dark:text-indigo-400 font-bold text-xs min-h-[42px]">
+                      <span className="text-slate-600 dark:text-slate-400">Chọn ngày:</span>
+                      <input 
+                        type="date"
+                        value={syncSelectedDate}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            setSyncSelectedDate(e.target.value);
+                          }
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-400 font-bold text-xs outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                      />
+                    </div>
+                  )}
+
+                  {syncTimeRange === 'week' && (
+                    <div className="flex flex-col gap-2 px-3.5 py-2 rounded-lg border border-indigo-500/30 bg-indigo-50/15 dark:bg-indigo-950/10 text-indigo-700 dark:text-indigo-400 font-bold text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600 dark:text-slate-400">Chọn ngày thuộc tuần đó:</span>
+                        <input 
+                          type="date"
+                          value={syncSelectedDate}
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              setSyncSelectedDate(e.target.value);
+                            }
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-400 font-bold text-xs outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-indigo-550/10 text-[10px] text-indigo-600/90 dark:text-indigo-400/90">
+                        <span>Phạm vi tuần:</span>
+                        {(() => {
+                          try {
+                            const d = new Date(syncSelectedDate);
+                            const dayOfWeek = d.getDay();
+                            const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+                            const monday = new Date(d);
+                            monday.setDate(d.getDate() + distanceToMonday);
+                            const sunday = new Date(monday);
+                            sunday.setDate(monday.getDate() + 6);
+                            const weekStr = `${monday.getDate().toString().padStart(2, '0')}/${(monday.getMonth()+1).toString().padStart(2, '0')} - ${sunday.getDate().toString().padStart(2, '0')}/${(sunday.getMonth()+1).toString().padStart(2, '0')}`;
+                            return (
+                              <span className="font-extrabold bg-indigo-100/50 dark:bg-indigo-950/40 px-2 py-0.5 rounded">
+                                {weekStr}
+                              </span>
+                            );
+                          } catch (e) {
+                            return <span>Tính tuần...</span>;
+                          }
+                        })()}
+                      </div>
+                    </div>
+                  )}
+
+                  {syncTimeRange === 'month' && (
+                    <div className="flex items-center justify-between px-3.5 py-2 rounded-lg border border-indigo-500/30 bg-indigo-50/15 dark:bg-indigo-950/10 text-indigo-700 dark:text-indigo-400 font-bold text-xs min-h-[42px]">
+                      <span className="text-slate-600 dark:text-slate-400">Chọn tháng:</span>
+                      <input 
+                        type="month"
+                        value={`${new Date(syncSelectedDate).getFullYear()}-${String(new Date(syncSelectedDate).getMonth() + 1).padStart(2, '0')}`}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            const [yr, mn] = e.target.value.split('-');
+                            const oldDay = new Date(syncSelectedDate).getDate();
+                            setSyncSelectedDate(`${yr}-${mn}-${String(oldDay).padStart(2, '0')}`);
+                          }
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-400 font-bold text-xs outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                      />
+                    </div>
+                  )}
+
+                  {syncTimeRange === 'year' && (
+                    <div className="flex items-center justify-between px-3.5 py-2 rounded-lg border border-indigo-500/30 bg-indigo-50/15 dark:bg-indigo-950/10 text-indigo-700 dark:text-indigo-400 font-bold text-xs min-h-[42px]">
+                      <span className="text-slate-600 dark:text-slate-400">Chọn năm:</span>
+                      <select
+                        value={new Date(syncSelectedDate).getFullYear()}
+                        onChange={(e) => {
+                          const yr = e.target.value;
+                          const d = new Date(syncSelectedDate);
+                          const currentM = String(d.getMonth() + 1).padStart(2, '0');
+                          const currentD = String(d.getDate()).padStart(2, '0');
+                          setSyncSelectedDate(`${yr}-${currentM}-${currentD}`);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-400 font-bold text-xs outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                      >
+                        {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(yr => (
+                          <option key={yr} value={yr} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200">{yr}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Overwrite selection */}
+            <div className="space-y-2 pt-1">
+              <span className="text-[11px] font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5 font-sans">
+                🔄 PHƯƠNG THỨC XỬ LÝ DỮ LIỆU CŨ:
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSyncOverwrite(true)}
+                  className={`p-3 rounded-lg border text-left transition duration-150 cursor-pointer flex items-start gap-2.5 ${
+                    syncOverwrite === true
+                      ? 'bg-rose-50/35 dark:bg-rose-950/10 border-rose-450/60 dark:border-rose-500/40 ring-1 ring-rose-500/10'
+                      : 'bg-slate-50/50 dark:bg-slate-900/30 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100/50 dark:hover:bg-slate-900/55'
+                  }`}
+                >
+                  <span className={`p-1.5 rounded shrink-0 ${syncOverwrite === true ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </span>
+                  <div>
+                    <span className="text-[11.5px] font-black text-rose-950 dark:text-rose-400 block">Có ghi đè dữ liệu trùng lặp</span>
+                    <span className="text-[9.5px] font-sans text-slate-500 dark:text-slate-450 block font-semibold mt-0.5 leading-relaxed">Hệ thống sẽ thay thế và cập nhật đè số liệu cũ bằng dữ liệu mới nhất.</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSyncOverwrite(false)}
+                  className={`p-3 rounded-lg border text-left transition duration-150 cursor-pointer flex items-start gap-2.5 ${
+                    syncOverwrite === false
+                      ? 'bg-emerald-50/30 dark:bg-emerald-950/10 border-emerald-450/60 dark:border-emerald-500/40 ring-1 ring-emerald-500/10'
+                      : 'bg-slate-50/50 dark:bg-slate-900/30 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100/50 dark:hover:bg-slate-900/55'
+                  }`}
+                >
+                  <span className={`p-1.5 rounded shrink-0 ${syncOverwrite === false ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <span className="text-[11.5px] font-black text-emerald-950 dark:text-emerald-400 block">Không ghi đè (An toàn)</span>
+                    <span className="text-[9.5px] font-sans text-slate-500 dark:text-slate-450 block font-semibold mt-0.5 leading-relaxed">Chỉ nạp thêm dòng mới, giữ nguyên bảo mật các báo cáo đang có trên hệ thống Clinis.</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* 3. Global Trigger Exec Button */}
+            <div className="pt-2.5 border-t border-slate-200 dark:border-slate-800 flex justify-end">
               <button
                 type="button"
-                onClick={() => setShowSheetsConfig(!showSheetsConfig)}
-                className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-[11px] font-bold shadow-xs flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                disabled={isSyncingSheets || isPullingSheets}
+                onClick={() => {
+                  if (syncDirection === 'push') {
+                    handleSyncToSheets(syncTimeRange, syncOverwrite);
+                  } else {
+                    handlePullFromSheets(syncTimeRange, syncOverwrite);
+                  }
+                }}
+                className={`w-full sm:w-auto px-6 py-2.5 rounded-lg text-xs font-black shadow-3xs cursor-pointer select-none transition flex items-center justify-center gap-2 hover:brightness-105 disabled:opacity-50 text-white ${
+                  syncDirection === 'push'
+                    ? 'bg-indigo-600 dark:bg-indigo-700 hover:bg-indigo-700'
+                    : 'bg-emerald-600 dark:bg-emerald-700 hover:bg-emerald-700'
+                }`}
               >
-                <Settings className="w-3.5 h-3.5" />
-                {showSheetsConfig ? "Ẩn thiết lập" : "Thiết lập kết nối"}
+                {isSyncingSheets || isPullingSheets ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Đang kết nối API Google Sheets...
+                  </>
+                ) : (
+                  <>
+                    {syncDirection === 'push' ? (
+                      <>
+                        <UploadCloud className="w-4 h-4 text-indigo-150" />
+                        Bắt đầu đồng bộ lên Google Sheets 📤
+                      </>
+                    ) : (
+                      <>
+                        <DownloadCloud className="w-4 h-4 text-emerald-150" />
+                        Bắt đầu tải dữ liệu xuống Clinis 📥
+                      </>
+                    )}
+                  </>
+                )}
               </button>
             </div>
-          </div>
-
-          {/* Input link Spreadsheet */}
-          <div className="space-y-1 max-w-2xl">
-            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Đường dẫn Google Sheets đồng bộ:</label>
-            <div className="relative">
-              <span className="absolute left-3 top-2 text-[11px] text-slate-400 font-mono select-none">🔗</span>
-              <input 
-                type="text"
-                value={googleSpreadsheetUrl}
-                onChange={(e) => setGoogleSpreadsheetUrl(e.target.value)}
-                placeholder="https://docs.google.com/spreadsheets/d/Spreadsheet-ID/edit"
-                className="w-full pl-8 pr-3 py-2 text-xs border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-indigo-505 focus:border-indigo-500 font-semibold font-sans shadow-3xs"
-              />
-            </div>
-          </div>
-
-          {/* Split Actions: Push and Pull */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-            
-            {/* 1. Sync UP section */}
-            <div className="bg-white dark:bg-slate-950/20 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-3xs">
-              <div className="flex items-center gap-2 border-b border-dashed border-slate-100 dark:border-slate-850 pb-2.5">
-                <span className="p-1.5 rounded bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400">
-                  <UploadCloud className="w-4 h-4" />
-                </span>
-                <div>
-                  <h4 className="font-extrabold text-xs text-indigo-750 dark:text-indigo-300 uppercase tracking-wider">📤 Đồng bộ Lên Google Sheets</h4>
-                  <p className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold">Chuyển dữ liệu Clinis ghi đè lên các cột trên Google Sheet</p>
-                </div>
-              </div>
-              
-              <div className="flex flex-col sm:flex-row gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleSyncToSheets(false)}
-                  disabled={isSyncingSheets || isPullingSheets}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[11px] transition duration-155 shadow-3xs disabled:opacity-50 cursor-pointer text-center"
-                >
-                  {isSyncingSheets ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      Đang gửi...
-                    </>
-                  ) : (
-                    <>
-                      <UploadCloud className="w-3.5 h-3.5 text-indigo-100" />
-                      Gửi Ngày: {formatDateToDDMMYYYY(activeDate)}
-                    </>
-                  )}
-                </button>
-                
-                <button
-                  type="button"
-                  onClick={() => handleSyncToSheets(true)}
-                  disabled={isSyncingSheets || isPullingSheets}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white font-extrabold text-[11px] transition duration-155 shadow-3xs disabled:opacity-50 cursor-pointer text-center"
-                >
-                  {isSyncingSheets ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      Đang gửi...
-                    </>
-                  ) : (
-                    <>
-                      <Calendar className="w-3.5 h-3.5 text-indigo-100" />
-                      Gửi Cả Tháng 📅
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* 2. Pull DOWN section */}
-            <div className="bg-white dark:bg-slate-950/20 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-3 shadow-3xs">
-              <div className="flex items-center gap-2 border-b border-dashed border-slate-100 dark:border-slate-850 pb-2.5">
-                <span className="p-1.5 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400">
-                  <DownloadCloud className="w-4 h-4" />
-                </span>
-                <div>
-                  <h4 className="font-extrabold text-xs text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">📥 Tải số liệu từ Google Sheets</h4>
-                  <p className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold">Tải số liệu từ Google Sheet nhập vào cơ sở dữ liệu</p>
-                </div>
-              </div>
-              
-              <div className="flex flex-col sm:flex-row gap-2">
-                <button
-                  type="button"
-                  onClick={() => handlePullFromSheets(false)}
-                  disabled={isSyncingSheets || isPullingSheets}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] transition duration-155 shadow-3xs disabled:opacity-50 cursor-pointer text-center"
-                >
-                  {isPullingSheets ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      Đang tải...
-                    </>
-                  ) : (
-                    <>
-                      <DownloadCloud className="w-3.5 h-3.5 text-emerald-100" />
-                      Tải Ngày: {formatDateToDDMMYYYY(activeDate)}
-                    </>
-                  )}
-                </button>
-                
-                <button
-                  type="button"
-                  onClick={() => handlePullFromSheets(true)}
-                  disabled={isSyncingSheets || isPullingSheets}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-[11px] transition duration-155 shadow-3xs disabled:opacity-50 cursor-pointer text-center"
-                >
-                  {isPullingSheets ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      Đang tải...
-                    </>
-                  ) : (
-                    <>
-                      <Calendar className="w-3.5 h-3.5 text-emerald-100" />
-                      Tải Cả Tháng 📅
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-
           </div>
 
           {/* Sync message callback feedback */}
@@ -2156,10 +2314,21 @@ export default function ClinicalReportTable({
               </span>
               <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">Xác nhận đồng bộ Google Sheets</h4>
             </div>
-            <p className="text-xs text-slate-650 dark:text-slate-400 leading-relaxed font-semibold">
-              {confirmSheetSync.syncAllMonth
-                ? "Bạn có chắc chắn muốn đồng bộ toàn bộ báo cáo các ngày có dữ liệu trong tháng lên Google Sheets? Thao tác này sẽ ghi đè lên các cột tương ứng trong bảng tính của bạn."
-                : `Bạn có chắc chắn muốn đồng bộ dữ liệu báo cáo Clinis ngày ${formatDateToDDMMYYYY(activeDate)} lên Google Sheets? Thao tác này sẽ ghi đè cột tương ứng.`}
+            <p className="text-xs text-slate-650 dark:text-slate-400 leading-relaxed font-semibold whitespace-pre-line">
+              {(() => {
+                const tr = confirmSheetSync.timeRange;
+                const datePart = formatDateToDDMMYYYY(syncSelectedDate);
+                const overwriteMsg = confirmSheetSync.overwrite
+                  ? "Lưu ý: Thao tác sẽ GHI ĐÈ lên các cột số liệu cũ tương ứng trong bảng tính Google Sheets của bạn."
+                  : "Lưu ý: Thao tác sẽ chỉ gửi số liệu bổ sung và không ảnh hưởng đến dữ liệu cũ.";
+
+                switch (tr) {
+                  case 'day': return `Bạn có chắc chắn muốn đồng bộ số liệu báo cáo Clinis ngày ${datePart} lên Google Sheets?\n\n${overwriteMsg}`;
+                  case 'week': return `Bạn có chắc chắn muốn đồng bộ số liệu báo cáo Clinis Tuần chứa ngày ${datePart} lên Google Sheets?\n\n${overwriteMsg}`;
+                  case 'month': return `Bạn có chắc chắn muốn đồng bộ số liệu báo cáo Clinis của toàn bộ Tháng ${(new Date(syncSelectedDate).getMonth()+1).toString().padStart(2, '0')}/${new Date(syncSelectedDate).getFullYear()} lên Google Sheets?\n\n${overwriteMsg}`;
+                  case 'year': return `Bạn có chắc chắn muốn đồng bộ toàn bộ tất cả báo cáo Clinis của Năm ${new Date(syncSelectedDate).getFullYear()} lên Google Sheets?\n\n${overwriteMsg}`;
+                }
+              })()}
             </p>
             <div className="flex items-center justify-end gap-2.5 pt-1">
               <button
@@ -2172,9 +2341,9 @@ export default function ClinicalReportTable({
               <button
                 type="button"
                 onClick={() => {
-                  const syncAll = confirmSheetSync.syncAllMonth;
+                  const { timeRange, overwrite } = confirmSheetSync;
                   setConfirmSheetSync(null);
-                  proceedSyncToSheets(syncAll);
+                  proceedSyncToSheets(timeRange, overwrite);
                 }}
                 className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold transition hover:bg-indigo-700 cursor-pointer"
               >
@@ -2184,7 +2353,7 @@ export default function ClinicalReportTable({
           </div>
         </div>
       )}
-
+  
       {confirmSheetPull && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] animate-fade-in">
           <div className="bg-white dark:bg-slate-900 rounded-xl max-w-sm w-full p-5 shadow-xl border border-slate-205 dark:border-slate-800 space-y-4 animate-scale-up text-slate-800 dark:text-slate-200">
@@ -2196,10 +2365,21 @@ export default function ClinicalReportTable({
               </span>
               <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">Xác nhận tải số liệu Google Sheets</h4>
             </div>
-            <p className="text-xs text-slate-650 dark:text-slate-400 leading-relaxed font-semibold">
-              {confirmSheetPull.pullAllMonth
-                ? "Bạn có chắc chắn muốn tải toàn bộ số liệu báo cáo của tất cả các ngày trong tháng từ Google Sheets về? Dữ liệu cục bộ trong ngày tương ứng sẽ bị thay thế bằng giá trị mới tải về."
-                : `Bạn có chắc chắn muốn tải số liệu tương ứng ngày ${formatDateToDDMMYYYY(activeDate)} từ Google Sheets về lưu trữ vào phần mềm Clinis?`}
+            <p className="text-xs text-slate-650 dark:text-slate-400 leading-relaxed font-semibold whitespace-pre-line">
+              {(() => {
+                const tr = confirmSheetPull.timeRange;
+                const datePart = formatDateToDDMMYYYY(syncSelectedDate);
+                const overwriteMsg = confirmSheetPull.overwrite
+                  ? "Lưu ý: Dữ liệu Clinis các ngày trùng lặp SẼ bị ghi đè và thay thế hoàn toàn."
+                  : "Lưu ý: Dữ liệu Clinis các ngày trùng lặp sẽ được GIỮ NGUYÊN và KHÔNG bị ghi đè.";
+
+                switch (tr) {
+                  case 'day': return `Bạn có chắc chắn muốn tải số liệu tương ứng ngày ${datePart} từ Google Sheets về phần mềm Clinis?\n\n${overwriteMsg}`;
+                  case 'week': return `Bạn có chắc chắn muốn tải số liệu của các ngày trong Tuần chứa ngày ${datePart} từ Google Sheets về phần mềm Clinis?\n\n${overwriteMsg}`;
+                  case 'month': return `Bạn có chắc chắn muốn tải toàn bộ số liệu của Tháng ${(new Date(syncSelectedDate).getMonth()+1).toString().padStart(2, '0')}/${new Date(syncSelectedDate).getFullYear()} từ Google Sheets về phần mềm Clinis?\n\n${overwriteMsg}`;
+                  case 'year': return `Bạn có chắc chắn muốn tải toàn bộ số liệu của tất cả các trang tính 'Tháng X' của Năm ${new Date(syncSelectedDate).getFullYear()} trên Google Sheets về phần mềm Clinis?\n\n${overwriteMsg}`;
+                }
+              })()}
             </p>
             <div className="flex items-center justify-end gap-2.5 pt-1">
               <button
@@ -2212,9 +2392,9 @@ export default function ClinicalReportTable({
               <button
                 type="button"
                 onClick={async () => {
-                  const pullAll = confirmSheetPull.pullAllMonth;
+                  const { timeRange, overwrite } = confirmSheetPull;
                   setConfirmSheetPull(null);
-                  await proceedPullFromSheets(pullAll);
+                  await proceedPullFromSheets(timeRange, overwrite);
                 }}
                 className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold transition hover:bg-emerald-700 cursor-pointer hover:scale-[1.02] active:scale-95"
               >
