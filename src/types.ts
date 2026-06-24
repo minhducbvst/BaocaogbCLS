@@ -96,6 +96,15 @@ export interface SystemSettings {
   bgStyle: 'default' | 'elegant' | 'modern-blue' | 'clean-mint' | 'warm-wood' | 'soft-slate' | 'cyberpunk' | 'dark-slate';
   systemTitle: string;
   systemSubtitle: string;
+  autoSyncEnabled?: boolean;
+  autoSyncTime?: string;
+  googleSpreadsheetUrl?: string;
+  googleApiKey?: string;
+  googleRefreshToken?: string;
+  googleClientId?: string;
+  googleClientSecret?: string;
+  telegramBotToken?: string;
+  telegramChatId?: string;
 }
 
 export interface WorkReport {

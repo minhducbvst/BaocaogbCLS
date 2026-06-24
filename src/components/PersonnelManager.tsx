@@ -31,7 +31,8 @@ import {
   Calendar,
   Briefcase,
   BookOpen,
-  Info
+  Info,
+  Send
 } from 'lucide-react';
 
 interface ServerDepartment {
@@ -374,6 +375,49 @@ export default function PersonnelManager({
   const [googleAccessToken, setGoogleAccessToken] = useState(() => localStorage.getItem('google_access_token') || '');
   const [googleSpreadsheetUrl, setGoogleSpreadsheetUrl] = useState(() => localStorage.getItem('google_spreadsheet_url') || 'https://docs.google.com/spreadsheets/d/1n7yQQmninnDTVNtIZqCzUEiAI1jRHSj4VTr7pVs3KMM/edit?usp=sharing');
   const [googleClientId, setGoogleClientId] = useState(() => localStorage.getItem('google_client_id') || '1067215171120-g7a7fge4vbe050m3oabm896v1k6g6m2f.apps.googleusercontent.com');
+
+  const [isTestingAutoSync, setIsTestingAutoSync] = useState(false);
+  const [testAutoSyncMessage, setTestAutoSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [testSyncDate, setTestSyncDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1); // Mặc định là ngày hôm qua
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  });
+
+  const handleTestAutoSync = async () => {
+    setIsTestingAutoSync(true);
+    setTestAutoSyncMessage(null);
+    try {
+      const res = await fetch('/api/sheets/auto-sync-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: testSyncDate })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestAutoSyncMessage({
+          type: 'success',
+          text: `Đồng bộ & gửi Telegram thành công số liệu ngày ${data.date || testSyncDate}!`
+        });
+        if (onRefresh) {
+          onRefresh();
+        }
+      } else {
+        throw new Error(data.error || 'Lỗi xử lý tự động đồng bộ & gửi Telegram.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setTestAutoSyncMessage({
+        type: 'error',
+        text: `Lỗi: ${err.message || String(err)}`
+      });
+    } finally {
+      setIsTestingAutoSync(false);
+    }
+  };
 
   useEffect(() => {
     // Parse Google OAuth access token from window.location.hash
@@ -2968,6 +3012,203 @@ export default function PersonnelManager({
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* CARD 2: TELEGRAM AUTOMATION & AUTO SYNC CONFIGURATION */}
+          <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-xl p-4 shadow-3xs space-y-4 transition-all duration-300">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                  <Send className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="font-extrabold text-slate-850 dark:text-white text-xs md:text-sm tracking-tight flex items-center gap-2">
+                    Tự động đồng bộ & Báo cáo Telegram 🤖
+                    {systemSettings?.autoSyncEnabled ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-2 py-0.5 rounded-full font-black font-sans animate-pulse">
+                        ● Đang chạy tự động
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-400 px-2 py-0.5 rounded-full font-bold">
+                        ○ Chưa bật tự động
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold uppercase tracking-wider">
+                    Cấu hình tự động đồng bộ Google Sheets lúc 12:00 hàng ngày & báo cáo trực tiếp qua Telegram
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Config Fields Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              
+              {/* Left Column: Schedule & Key */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-850 rounded-xl">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Bật tự động hàng ngày:</label>
+                    <p className="text-[10px] text-slate-400 font-medium">Đồng bộ số liệu ngày hôm trước</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onUpdateSettings?.({ autoSyncEnabled: !systemSettings?.autoSyncEnabled })}
+                    className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                      systemSettings?.autoSyncEnabled ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-800'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                        systemSettings?.autoSyncEnabled ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Giờ chạy tự động:</label>
+                  <input
+                    type="time"
+                    value={systemSettings?.autoSyncTime || '12:00'}
+                    onChange={(e) => onUpdateSettings?.({ autoSyncTime: e.target.value })}
+                    className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-850 dark:text-slate-200 p-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-505"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Google Sheets API Key (Dành cho bảng tính công khai):</label>
+                  <input
+                    type="text"
+                    value={systemSettings?.googleApiKey || ''}
+                    onChange={(e) => onUpdateSettings?.({ googleApiKey: e.target.value })}
+                    placeholder="Nhập Google API Key (Dành cho bảng tính công khai)"
+                    className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-850 dark:text-slate-200 p-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-505"
+                  />
+                  <p className="text-[9.5px] text-slate-450 leading-relaxed">
+                    Sử dụng khi Spreadsheet được chia sẻ ở chế độ <b>"Bất kỳ ai có đường liên kết đều có thể xem"</b>. Cách này đơn giản và chạy ngầm cực kỳ ổn định.
+                  </p>
+                </div>
+              </div>
+
+              {/* Right Column: Telegram Settings */}
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Telegram Bot Token:</label>
+                  <input
+                    type="password"
+                    value={systemSettings?.telegramBotToken || ''}
+                    onChange={(e) => onUpdateSettings?.({ telegramBotToken: e.target.value })}
+                    placeholder="Dán mã Token từ @BotFather (ví dụ: 123456:ABC-DEF...)"
+                    className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-850 dark:text-slate-200 p-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-505"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Telegram Chat ID / Group ID:</label>
+                  <input
+                    type="text"
+                    value={systemSettings?.telegramChatId || ''}
+                    onChange={(e) => onUpdateSettings?.({ telegramChatId: e.target.value })}
+                    placeholder="Nhập ID cuộc trò chuyện hoặc ID nhóm (ví dụ: -100123456789)"
+                    className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-850 dark:text-slate-200 p-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-505"
+                  />
+                </div>
+
+                <div className="p-3 bg-indigo-50/20 dark:bg-indigo-950/10 border border-indigo-150/40 rounded-xl space-y-1">
+                  <span className="text-[10px] font-black text-indigo-700 dark:text-indigo-400 block flex items-center gap-1">
+                    <Info className="w-3.5 h-3.5 shrink-0" />
+                    CÁC BƯỚC KHỞI TẠO TELEGRAM BOT BÁO CÁO:
+                  </span>
+                  <ol className="list-decimal list-inside text-[9.5px] text-slate-500 dark:text-slate-450 leading-relaxed space-y-1 font-semibold">
+                    <li>Nhắn tin cho <strong className="text-indigo-650 dark:text-indigo-400">@BotFather</strong>, gõ lệnh <code className="bg-slate-100 px-1 py-0.2 rounded font-mono">/newbot</code> tạo Bot báo cáo mới.</li>
+                    <li>Copy đoạn <b>Token</b> Bot dán vào ô cấu hình bên trên.</li>
+                    <li>Tạo một nhóm chat, thêm Bot vào nhóm làm quản trị viên.</li>
+                    <li>Lấy Chat ID của nhóm thông qua các Bot như <strong className="text-slate-750">@raw_data_bot</strong> dán vào ô Chat ID.</li>
+                  </ol>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Optional private oauth block */}
+            <div className="border-t border-slate-200 dark:border-slate-800 pt-3.5 space-y-3">
+              <h4 className="font-extrabold text-slate-800 dark:text-white text-xs">Cách 2: Đồng bộ bảo mật với Refresh Token (Spreadsheet riêng tư)</h4>
+              <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
+                Nếu bảng tính Google Sheets của bạn ở trạng thái riêng tư, hãy điền đầy đủ thông tin xác thực Google Client bên dưới để máy chủ tự động gia hạn quyền truy cập khi chạy ngầm:
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[9.5px] font-bold text-slate-500 block">Google Client Secret:</label>
+                  <input
+                    type="password"
+                    value={systemSettings?.googleClientSecret || ''}
+                    onChange={(e) => onUpdateSettings?.({ googleClientSecret: e.target.value })}
+                    placeholder="Nhập Google OAuth Client Secret"
+                    className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-850 dark:text-slate-200 p-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-505"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9.5px] font-bold text-slate-500 block">Google OAuth Refresh Token:</label>
+                  <input
+                    type="password"
+                    value={systemSettings?.googleRefreshToken || ''}
+                    onChange={(e) => onUpdateSettings?.({ googleRefreshToken: e.target.value })}
+                    placeholder="Dán mã Refresh Token"
+                    className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-850 dark:text-slate-200 p-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-505"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9.5px] font-bold text-slate-500 block">Google Client ID (Dành cho nền):</label>
+                  <input
+                    type="text"
+                    value={systemSettings?.googleClientId || ''}
+                    onChange={(e) => onUpdateSettings?.({ googleClientId: e.target.value })}
+                    placeholder="Nhập Client ID"
+                    className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-850 dark:text-slate-200 p-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-505"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Test Connection Form Row */}
+            <div className="border-t border-slate-200 dark:border-slate-800 pt-3.5 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <label className="text-[10px] font-black text-slate-500 uppercase shrink-0">Ngày chạy thử số liệu:</label>
+                <input
+                  type="date"
+                  value={testSyncDate}
+                  onChange={(e) => setTestSyncDate(e.target.value)}
+                  className="text-xs border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-950 text-slate-850 dark:text-slate-200 p-1.5 focus:outline-hidden"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleTestAutoSync}
+                disabled={isTestingAutoSync}
+                style={{ backgroundColor: systemSettings?.themeColor || '#4f46e5' }}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-white font-extrabold text-xs shadow-xs transition duration-150 cursor-pointer select-none disabled:opacity-50"
+              >
+                {isTestingAutoSync ? (
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                Chạy thử & Gửi báo cáo ngay 🚀
+              </button>
+            </div>
+
+            {/* Test Result Message Output */}
+            {testAutoSyncMessage && (
+              <div className={`p-3 rounded-lg text-xs font-semibold leading-relaxed border ${
+                testAutoSyncMessage.type === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200/50 text-emerald-800 dark:text-emerald-400'
+                  : 'bg-red-50 dark:bg-red-950/20 border-red-200/50 text-red-850 dark:text-red-400'
+              }`}>
+                {testAutoSyncMessage.type === 'success' ? '➔ ✅ ' : '➔ ⚠️ '}
+                {testAutoSyncMessage.text}
+              </div>
+            )}
           </div>
         </div>
       )}

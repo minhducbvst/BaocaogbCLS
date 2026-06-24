@@ -482,7 +482,16 @@ let systemSettings = {
   logoUrl: "",
   bgStyle: "clean-mint",
   systemTitle: "Giao Ban Khoa Cận Lâm Sàng",
-  systemSubtitle: "Hệ thống báo cáo số liệu & Tự động hóa biên bản giao ban bằng AI"
+  systemSubtitle: "Hệ thống báo cáo số liệu & Tự động hóa biên bản giao ban bằng AI",
+  autoSyncEnabled: false,
+  autoSyncTime: "12:00",
+  googleSpreadsheetUrl: "",
+  googleApiKey: "",
+  googleRefreshToken: "",
+  googleClientId: "",
+  googleClientSecret: "",
+  telegramBotToken: "",
+  telegramChatId: ""
 };
 
 let workReports = [
@@ -2993,6 +3002,446 @@ app.post("/api/sheets/pull", async (req, res) => {
     countSkipped
   });
 });
+
+// 8. Google Sheets Auto-Sync & Telegram Reporting
+function getYesterdayDateInVietnam() {
+  const vnTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
+  vnTime.setDate(vnTime.getDate() - 1);
+  const y = vnTime.getFullYear();
+  const m = String(vnTime.getMonth() + 1).padStart(2, '0');
+  const d = String(vnTime.getDate()).padStart(2, '0');
+  return {
+    dateStr: `${y}-${m}-${d}`,
+    year: y,
+    month: vnTime.getMonth() + 1,
+    day: vnTime.getDate()
+  };
+}
+
+async function getFreshAccessToken(clientId: string, clientSecret: string, refreshToken: string): Promise<string> {
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to refresh token: ${await response.text()}`);
+  }
+  const data = await response.json() as any;
+  return data.access_token;
+}
+
+async function sendTelegramMessage(botToken: string, chatId: string, message: string) {
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: message,
+      parse_mode: "HTML"
+    })
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Telegram API Error: ${text}`);
+  }
+  return await response.json();
+}
+
+function formatTelegramReportMessage(report: any, dateStr: string): string {
+  const dateParts = dateStr.split("-");
+  const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : dateStr;
+
+  let message = `📊 <b>BÁO CÁO GIAO BAN SỐ LIỆU SỬ DỤNG AI</b>\n`;
+  message += `📅 <b>Ngày báo cáo:</b> ${formattedDate}\n`;
+  message += `👤 <b>Đồng bộ từ:</b> ${report.submittedBy || "Hệ thống tự động"}\n`;
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  const categories: { [key: string]: { label: string; items: any[] } } = {
+    sieuAm: { label: "🔊 SIÊU ÂM", items: [] },
+    noiSoi: { label: "👁️ NỘI SOI", items: [] },
+    xQuang: { label: "🩻 X-QUANG & CLVT", items: [] },
+    dienTim: { label: "📈 ĐIỆN TIM & LHN", items: [] },
+    xetNghiem: { label: "🧪 XÉT NGHIỆM", items: [] }
+  };
+
+  const items = report.items || [];
+  let totalBhAll = 0;
+  let totalNdAll = 0;
+
+  items.forEach((item: any) => {
+    totalBhAll += item.bh || 0;
+    totalNdAll += item.nd || 0;
+
+    if (item.id.startsWith("sieuAm_")) {
+      categories.sieuAm.items.push(item);
+    } else if (item.id.startsWith("noiSoi_")) {
+      categories.noiSoi.items.push(item);
+    } else if (item.id.startsWith("xQuang_")) {
+      categories.xQuang.items.push(item);
+    } else if (item.id.startsWith("dienTim_")) {
+      categories.dienTim.items.push(item);
+    } else if (item.id.startsWith("xetNghiem_")) {
+      categories.xetNghiem.items.push(item);
+    }
+  });
+
+  Object.keys(categories).forEach((catKey) => {
+    const cat = categories[catKey];
+    let catBh = 0;
+    let catNd = 0;
+    let catLines = "";
+
+    cat.items.forEach((item) => {
+      const bh = item.bh || 0;
+      const nd = item.nd || 0;
+      catBh += bh;
+      catNd += nd;
+
+      if (bh > 0 || nd > 0) {
+        catLines += `  • ${item.name}: <b>${bh + nd}</b> ca `;
+        if (bh > 0 && nd > 0) {
+          catLines += `<i>(BH: ${bh}, ND: ${nd})</i>`;
+        } else if (bh > 0) {
+          catLines += `<i>(BH: ${bh})</i>`;
+        } else if (nd > 0) {
+          catLines += `<i>(ND: ${nd})</i>`;
+        }
+        catLines += `\n`;
+      }
+    });
+
+    if (catBh > 0 || catNd > 0) {
+      message += `<b>${cat.label}</b> (Tổng: <b>${catBh + catNd}</b> ca)\n`;
+      message += catLines;
+      message += `\n`;
+    }
+  });
+
+  message += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+  message += `📈 <b>TỔNG CỘNG TOÀN KHOA:</b> <b>${totalBhAll + totalNdAll}</b> ca thực hiện\n`;
+  message += `  - Bảo hiểm Y tế (BH): <b>${totalBhAll}</b> ca\n`;
+  message += `  - Ngoài định mức / Dịch vụ (ND): <b>${totalNdAll}</b> ca\n\n`;
+  message += `🔔 <i>Hệ thống báo cáo tự động lúc 12:00 hàng ngày. Không cần mở ứng dụng.</i>`;
+
+  return message;
+}
+
+async function runAutomatedSyncAndReport(customDateStr?: string) {
+  try {
+    const settings = systemSettings as any;
+    const spreadsheetUrl = settings.googleSpreadsheetUrl || "";
+    if (!spreadsheetUrl) {
+      throw new Error("Đường dẫn Google Sheets chưa được cấu hình.");
+    }
+
+    let targetDateStr = customDateStr;
+    let targetYear = 0;
+    let targetMonth = 0;
+    let targetDay = 0;
+
+    if (!targetDateStr) {
+      const yesterday = getYesterdayDateInVietnam();
+      targetDateStr = yesterday.dateStr;
+      targetYear = yesterday.year;
+      targetMonth = yesterday.month;
+      targetDay = yesterday.day;
+    } else {
+      const parts = targetDateStr.split("-");
+      if (parts.length === 3) {
+        targetYear = parseInt(parts[0], 10);
+        targetMonth = parseInt(parts[1], 10);
+        targetDay = parseInt(parts[2], 10);
+      } else {
+        throw new Error("Định dạng ngày không đúng. Vui lòng dùng YYYY-MM-DD.");
+      }
+    }
+
+    console.log(`[Auto-Sync] Bắt đầu đồng bộ tự động ngày ${targetDateStr}...`);
+
+    const cleanUrl = String(spreadsheetUrl).trim();
+    let spreadsheetId = "";
+    const match = cleanUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) {
+      spreadsheetId = match[1];
+    } else {
+      spreadsheetId = cleanUrl;
+    }
+
+    if (!spreadsheetId) {
+      throw new Error("Không thể xác định Spreadsheet ID.");
+    }
+
+    let token = "";
+    const apiKey = settings.googleApiKey || "";
+    
+    if (settings.googleRefreshToken && settings.googleClientId && settings.googleClientSecret) {
+      try {
+        console.log("[Auto-Sync] Đang lấy Google Access Token mới từ Refresh Token...");
+        token = await getFreshAccessToken(
+          settings.googleClientId,
+          settings.googleClientSecret,
+          settings.googleRefreshToken
+        );
+      } catch (err: any) {
+        console.error("[Auto-Sync] Lỗi làm mới token:", err?.message || err);
+      }
+    }
+
+    if (!token && settings.googleAccessToken) {
+      token = settings.googleAccessToken;
+    }
+
+    let metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`;
+    if (apiKey && !token) {
+      metaUrl += `&key=${apiKey}`;
+    }
+
+    const headers: any = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const metaResponse = await fetch(metaUrl, { headers });
+    if (!metaResponse.ok) {
+      throw new Error(`Google Sheets Metadata API Error (HTTP ${metaResponse.status}): ${await metaResponse.text()}`);
+    }
+
+    const metaData = await metaResponse.json() as any;
+    const existingSheetTitles = (metaData.sheets || []).map((s: any) => s.properties?.title || "");
+
+    const sheetNameNormal = `Tháng ${targetMonth}`;
+    const sheetNamePad = `Tháng ${String(targetMonth).padStart(2, "0")}`;
+    
+    let resolvedName = "";
+    if (existingSheetTitles.includes(sheetNameNormal)) {
+      resolvedName = sheetNameNormal;
+    } else if (existingSheetTitles.includes(sheetNamePad)) {
+      resolvedName = sheetNamePad;
+    }
+
+    if (!resolvedName) {
+      throw new Error(`Không tìm thấy trang tính 'Tháng ${targetMonth}' trong Google Sheets.`);
+    }
+
+    const range = `'${resolvedName}'!C7:BL40`;
+    let batchGetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=${encodeURIComponent(range)}`;
+    if (apiKey && !token) {
+      batchGetUrl += `&key=${apiKey}`;
+    }
+
+    const valResponse = await fetch(batchGetUrl, { headers });
+    if (!valResponse.ok) {
+      throw new Error(`Google Sheets Values API Error (HTTP ${valResponse.status}): ${await valResponse.text()}`);
+    }
+
+    const valData = await valResponse.json() as any;
+    const valueRanges = valData.valueRanges || [];
+    const valRange = valueRanges[0];
+    if (!valRange || !valRange.values) {
+      throw new Error(`Trang tính rỗng hoặc không có dữ liệu cho dải ô tháng ${targetMonth}.`);
+    }
+
+    const rawRows = valRange.values;
+    const colBhIdx = (targetDay - 1) * 2;
+    const colNdIdx = (targetDay - 1) * 2 + 1;
+
+    const rowItemIds: (string | null)[] = [
+      'sieuAm_tim',
+      'sieuAm_mach',
+      'sieuAm_thai4d',
+      'sieuAm_tongquat',
+      'sieuAm_danHoi',
+      'sieuAm_canThiep',
+      null,
+      'noiSoi_daDay',
+      'noiSoi_daiTrucTrang',
+      'noiSoi_trucTrang',
+      'noiSoi_sigma',
+      'noiSoi_thutThao',
+      'noiSoi_catPolyp',
+      'noiSoi_clotest',
+      'noiSoi_gayMeDaDayDaiTrang',
+      'noiSoi_gayMeDon',
+      null,
+      'xQuang_thuong',
+      'xQuang_dacBiet',
+      'xQuang_clvt',
+      null,
+      'dienTim_thuong',
+      'dienTim_luuHuyetNao',
+      'xetNghiem_sinhHoa',
+      'xetNghiem_huyetHoc',
+      'xetNghiem_nuocTieu',
+      'xetNghiem_viSinh',
+      'xetNghiem_mienDich',
+      'xetNghiem_melatec',
+      'xetNghiem_hopeHpv',
+      'xetNghiem_hopePap',
+      'xetNghiem_teBao',
+      'xetNghiem_thinPrep',
+      null,
+    ];
+
+    const parsedItems: any[] = [];
+    rowItemIds.forEach((itemId, rIdx) => {
+      if (!itemId) return;
+
+      const rowData = rawRows[rIdx] || [];
+      const bhRaw = rowData[colBhIdx];
+      const ndRaw = rowData[colNdIdx];
+
+      const bhVal = (bhRaw !== undefined && bhRaw !== "") ? parseInt(bhRaw) : 0;
+      const ndVal = (ndRaw !== undefined && ndRaw !== "") ? parseInt(ndRaw) : 0;
+
+      const bhNum = isNaN(bhVal) ? 0 : bhVal;
+      const ndNum = isNaN(ndVal) ? 0 : ndVal;
+
+      const standardProc = serverProcedures.find(p => p.id === itemId);
+      parsedItems.push({
+        id: itemId,
+        name: standardProc?.name || itemId,
+        category: standardProc?.category || "other",
+        bh: bhNum,
+        nd: ndNum
+      });
+    });
+
+    const existingIdx = reports.findIndex(r => r.date === targetDateStr);
+    let finalReport: any;
+
+    if (existingIdx !== -1) {
+      reports[existingIdx] = {
+        ...reports[existingIdx],
+        items: parsedItems,
+        status: "approved",
+        approvedBy: "Hệ thống (Đồng bộ Tự động 12h)",
+        submittedAt: new Date().toISOString()
+      };
+      finalReport = reports[existingIdx];
+      saveDocument("reports", targetDateStr, finalReport);
+    } else {
+      finalReport = {
+        date: targetDateStr,
+        status: "approved",
+        submittedBy: "Hệ thống (Đồng bộ Tự động 12h)",
+        submittedAt: new Date().toISOString(),
+        approvedBy: "Hệ thống (Đồng bộ Tự động 12h)",
+        items: parsedItems
+      };
+      reports.push(finalReport);
+      saveDocument("reports", targetDateStr, finalReport);
+    }
+
+    // Add Audit Log
+    const logId = "log_auto_" + Date.now();
+    const newLog = {
+      id: logId,
+      actor: "Hệ thống tự động",
+      action: "Đồng bộ tự động",
+      details: `Đồng bộ dữ liệu báo cáo ngày ${targetDateStr} từ Google Sheets thành công.`,
+      timestamp: new Date().toISOString()
+    };
+    serverAuditLogs.unshift(newLog);
+    saveDocument("auditLogs", logId, newLog);
+
+    // Add Notification
+    const notifId = "notif_auto_" + Date.now();
+    const newNotification = {
+      id: notifId,
+      title: "Đồng bộ tự động hoàn tất 🕒",
+      content: `Dữ liệu ngày ${targetDateStr} đã được đồng bộ từ Google Sheets và gửi báo cáo Telegram thành công.`,
+      timestamp: new Date().toISOString(),
+      type: "success",
+      read: false
+    };
+    notifications.push(newNotification);
+    saveDocument("notifications", notifId, newNotification);
+
+    // Send Telegram
+    const botToken = settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = settings.telegramChatId || process.env.TELEGRAM_CHAT_ID;
+
+    if (botToken && chatId) {
+      console.log(`[Auto-Sync] Đang gửi báo cáo Telegram ngày ${targetDateStr}...`);
+      const tgMsg = formatTelegramReportMessage(finalReport, targetDateStr);
+      await sendTelegramMessage(botToken, chatId, tgMsg);
+      console.log("[Auto-Sync] Báo cáo Telegram đã gửi thành công.");
+    } else {
+      console.log("[Auto-Sync] Chưa cấu hình Telegram Bot Token hoặc Chat ID. Bỏ qua gửi báo cáo.");
+    }
+
+    return { success: true, date: targetDateStr, report: finalReport };
+  } catch (err: any) {
+    console.error("[Auto-Sync] Đồng bộ tự động thất bại:", err?.message || err);
+
+    try {
+      const notifId = "notif_err_" + Date.now();
+      const newNotification = {
+        id: notifId,
+        title: "Đồng bộ tự động thất bại ⚠️",
+        content: `Lỗi: ${err?.message || err}`,
+        timestamp: new Date().toISOString(),
+        type: "error",
+        read: false
+      };
+      notifications.unshift(newNotification);
+      saveDocument("notifications", notifId, newNotification);
+    } catch (e) {}
+
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+// REST Endpoint to trigger/test Auto-Sync manually
+app.post("/api/sheets/auto-sync-test", async (req, res) => {
+  const { date } = req.body;
+  const result = await runAutomatedSyncAndReport(date);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(500).json(result);
+  }
+});
+
+// Periodic check for 12:00 Vietnam time daily
+setInterval(async () => {
+  try {
+    const settings = systemSettings as any;
+    if (!settings.autoSyncEnabled) {
+      return;
+    }
+
+    const vnTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
+    const hour = vnTime.getHours();
+    const minute = vnTime.getMinutes();
+    
+    // Parse target hour and target minute (default to 12:00)
+    const targetTime = settings.autoSyncTime || "12:00";
+    const [targetHourStr, targetMinStr] = targetTime.split(":");
+    const targetHour = parseInt(targetHourStr, 10) || 12;
+    const targetMin = parseInt(targetMinStr, 10) || 0;
+
+    if (hour === targetHour && minute === targetMin) {
+      const dateKey = vnTime.toDateString();
+      if ((global as any).lastAutoSyncDate === dateKey) {
+        return; // Already run today
+      }
+      (global as any).lastAutoSyncDate = dateKey;
+      
+      console.log(`[Auto-Sync Scheduler] Triggering automatic daily sync and Telegram reporting at ${targetTime} VN time...`);
+      await runAutomatedSyncAndReport();
+    }
+  } catch (err) {
+    console.error("[Auto-Sync Scheduler] Error in background scheduler:", err);
+  }
+}, 60000); // Check once every minute
 
 async function syncAllFromFirebase() {
   console.log("Starting Firebase data synchronization...");

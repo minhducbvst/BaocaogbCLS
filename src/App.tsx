@@ -78,7 +78,16 @@ export default function App() {
     logoUrl: "",
     bgStyle: "clean-mint",
     systemTitle: "Giao Ban Khoa Cận Lâm Sàng",
-    systemSubtitle: "Hệ thống báo cáo số liệu & Tự động hóa biên bản giao ban bằng AI"
+    systemSubtitle: "Hệ thống báo cáo số liệu & Tự động hóa biên bản giao ban bằng AI",
+    autoSyncEnabled: false,
+    autoSyncTime: "12:00",
+    googleSpreadsheetUrl: "",
+    googleApiKey: "",
+    googleRefreshToken: "",
+    googleClientId: "",
+    googleClientSecret: "",
+    telegramBotToken: "",
+    telegramChatId: ""
   });
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'report' | 'meetings' | 'search' | 'personnel' | 'work-reports'>('report');
