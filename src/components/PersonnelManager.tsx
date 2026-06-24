@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { User, PrintSettings } from '../types';
 import { CATEGORIES, DEFAULT_PRINT_SETTINGS } from '../data';
 import { 
@@ -22,7 +23,15 @@ import {
   Edit2,
   Printer,
   Shield,
-  FileSpreadsheet
+  FileSpreadsheet,
+  UploadCloud,
+  ImageIcon,
+  FileDown,
+  Mail,
+  Calendar,
+  Briefcase,
+  BookOpen,
+  Info
 } from 'lucide-react';
 
 interface ServerDepartment {
@@ -117,6 +126,250 @@ export default function PersonnelManager({
     onConfirm: () => void;
   } | null>(null);
 
+  // Custom logo upload states
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
+  const [logoUploadSuccess, setLogoUploadSuccess] = useState(false);
+  const [isDraggingLogo, setIsDraggingLogo] = useState(false);
+
+  // Custom banner upload states
+  const [bannerUploading, setBannerUploading] = useState(false);
+  const [bannerUploadError, setBannerUploadError] = useState<string | null>(null);
+  const [bannerUploadSuccess, setBannerUploadSuccess] = useState(false);
+  const [isDraggingBanner, setIsDraggingBanner] = useState(false);
+
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setLogoUploadError("Vui lòng chọn một tệp hình ảnh hợp lệ (PNG, JPG, WEBP, SVG, GIF).");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setLogoUploadError("Kích thước hình ảnh không được vượt quá 5MB.");
+      return;
+    }
+
+    setLogoUploading(true);
+    setLogoUploadError(null);
+    setLogoUploadSuccess(false);
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const base64Data = reader.result as string;
+        const res = await fetch("/api/upload-logo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, base64Data })
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Tải ảnh lên thất bại.");
+        }
+
+        const data = await res.json();
+        if (data.success && data.settings) {
+          await onUpdateSettings?.(data.settings);
+          setLogoUploadSuccess(true);
+          setTimeout(() => setLogoUploadSuccess(false), 3000);
+        } else {
+          throw new Error("Lỗi phản hồi từ máy chủ.");
+        }
+      } catch (err: any) {
+        console.error(err);
+        setLogoUploadError(err.message || "Không thể tải hình ảnh lên máy chủ.");
+      } finally {
+        setLogoUploading(false);
+      }
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  const handleLogoDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingLogo(true);
+  };
+
+  const handleLogoDragLeave = () => {
+    setIsDraggingLogo(false);
+  };
+
+  const handleLogoDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingLogo(false);
+    
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setLogoUploadError("Vui lòng chọn một tệp hình ảnh hợp lệ (PNG, JPG, WEBP, SVG, GIF).");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setLogoUploadError("Kích thước hình ảnh không được vượt quá 5MB.");
+      return;
+    }
+
+    setLogoUploading(true);
+    setLogoUploadError(null);
+    setLogoUploadSuccess(false);
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const base64Data = reader.result as string;
+        const res = await fetch("/api/upload-logo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, base64Data })
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Tải ảnh lên thất bại.");
+        }
+
+        const data = await res.json();
+        if (data.success && data.settings) {
+          await onUpdateSettings?.(data.settings);
+          setLogoUploadSuccess(true);
+          setTimeout(() => setLogoUploadSuccess(false), 3000);
+        } else {
+          throw new Error("Lỗi phản hồi từ máy chủ.");
+        }
+      } catch (err: any) {
+        console.error(err);
+        setLogoUploadError(err.message || "Không thể tải hình ảnh lên máy chủ.");
+      } finally {
+        setLogoUploading(false);
+      }
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  const handleBannerFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setBannerUploadError("Vui lòng chọn một tệp hình ảnh hợp lệ (PNG, JPG, WEBP, SVG, GIF).");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setBannerUploadError("Kích thước hình ảnh không được vượt quá 5MB.");
+      return;
+    }
+
+    setBannerUploading(true);
+    setBannerUploadError(null);
+    setBannerUploadSuccess(false);
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const base64Data = reader.result as string;
+        const res = await fetch("/api/upload-banner", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, base64Data })
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Tải ảnh lên thất bại.");
+        }
+
+        const data = await res.json();
+        if (data.success && data.settings) {
+          await onUpdateSettings?.(data.settings);
+          setBannerUploadSuccess(true);
+          setTimeout(() => setBannerUploadSuccess(false), 3000);
+        } else {
+          throw new Error("Lỗi phản hồi từ máy chủ.");
+        }
+      } catch (err: any) {
+        console.error(err);
+        setBannerUploadError(err.message || "Không thể tải hình ảnh lên máy chủ.");
+      } finally {
+        setBannerUploading(false);
+      }
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  const handleBannerDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingBanner(true);
+  };
+
+  const handleBannerDragLeave = () => {
+    setIsDraggingBanner(false);
+  };
+
+  const handleBannerDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingBanner(false);
+    
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setBannerUploadError("Vui lòng chọn một tệp hình ảnh hợp lệ (PNG, JPG, WEBP, SVG, GIF).");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setBannerUploadError("Kích thước hình ảnh không được vượt quá 5MB.");
+      return;
+    }
+
+    setBannerUploading(true);
+    setBannerUploadError(null);
+    setBannerUploadSuccess(false);
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const base64Data = reader.result as string;
+        const res = await fetch("/api/upload-banner", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, base64Data })
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Tải ảnh lên thất bại.");
+        }
+
+        const data = await res.json();
+        if (data.success && data.settings) {
+          await onUpdateSettings?.(data.settings);
+          setBannerUploadSuccess(true);
+          setTimeout(() => setBannerUploadSuccess(false), 3000);
+        } else {
+          throw new Error("Lỗi phản hồi từ máy chủ.");
+        }
+      } catch (err: any) {
+        console.error(err);
+        setBannerUploadError(err.message || "Không thể tải hình ảnh lên máy chủ.");
+      } finally {
+        setBannerUploading(false);
+      }
+    };
+
+    reader.readAsDataURL(file);
+  };
+
   // Google Sheets Integration State in Admin Menu
   const [googleAccessToken, setGoogleAccessToken] = useState(() => localStorage.getItem('google_access_token') || '');
   const [googleSpreadsheetUrl, setGoogleSpreadsheetUrl] = useState(() => localStorage.getItem('google_spreadsheet_url') || 'https://docs.google.com/spreadsheets/d/1n7yQQmninnDTVNtIZqCzUEiAI1jRHSj4VTr7pVs3KMM/edit?usp=sharing');
@@ -174,6 +427,273 @@ export default function PersonnelManager({
   const [staffPhone, setStaffPhone] = useState<string>('');
   const [staffAddress, setStaffAddress] = useState<string>('');
   const [staffNotes, setStaffNotes] = useState<string>('');
+
+  // Viewing detail state
+  const [viewingStaff, setViewingStaff] = useState<any | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
+  // Excel Import States & Handlers
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
+  const [excelImportError, setExcelImportError] = useState<string | null>(null);
+  const [excelImportSuccess, setExcelImportSuccess] = useState<string | null>(null);
+  const [excelImportLogs, setExcelImportLogs] = useState<string[]>([]);
+  const [parsedExcelUsers, setParsedExcelUsers] = useState<any[]>([]);
+  const [isExcelImportingProgress, setIsExcelImportingProgress] = useState(false);
+
+  const handleDownloadTemplate = () => {
+    const wsData = [
+      [
+        "Họ và tên *", 
+        "Thư điện tử (Email) *", 
+        "Phòng ban *", 
+        "Vai trò *", 
+        "Chức danh / Chức vụ", 
+        "Giới tính", 
+        "Năm sinh", 
+        "Trình độ chuyên môn", 
+        "Bằng cấp", 
+        "Số điện thoại", 
+        "Địa chỉ", 
+        "Ghi chú"
+      ],
+      [
+        "Nguyễn Văn A", 
+        "nguyenvana@gmail.com", 
+        "Phòng Siêu Âm", 
+        "Siêu âm", 
+        "Bác sĩ điều trị", 
+        "Nam", 
+        1980, 
+        "Bác sĩ CKII", 
+        "Sau ĐH", 
+        "0901234567", 
+        "123 Nguyễn Huệ, Quận 1, TP. HCM", 
+        "Trưởng nhóm trực siêu âm"
+      ],
+      [
+        "Trần Thị B", 
+        "tranthib@gmail.com", 
+        "Phòng Nội Soi", 
+        "Nội soi", 
+        "Kỹ thuật viên Nội soi", 
+        "Nữ", 
+        1988, 
+        "Bác sĩ CKI", 
+        "Sau ĐH", 
+        "0912345678", 
+        "456 Lê Lợi, Quận 1, TP. HCM", 
+        ""
+      ],
+      [
+        "Phạm Văn C", 
+        "phamvanc@gmail.com", 
+        "Phòng Xét Nghiệm", 
+        "Xét nghiệm", 
+        "Bác sĩ Xét nghiệm", 
+        "Nam", 
+        1992, 
+        "Thạc sĩ", 
+        "Sau ĐH", 
+        "0923456789", 
+        "789 CMT8, Quận 3, TP. HCM", 
+        "Đã được tập huấn máy Cobas"
+      ],
+      [
+        "Lê Văn D", 
+        "levand@gmail.com", 
+        "Phòng X-Quang & CT", 
+        "Nhân viên", 
+        "Kỹ thuật viên hình ảnh", 
+        "Nam", 
+        1995, 
+        "Cử nhân", 
+        "ĐH", 
+        "0987654321", 
+        "321 Ba Tháng Hai, Quận 10, TP. HCM", 
+        ""
+      ]
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    const wscols = [
+      { wch: 22 }, // Họ và tên
+      { wch: 25 }, // Email
+      { wch: 25 }, // Phòng ban
+      { wch: 15 }, // Vai trò
+      { wch: 22 }, // Chức danh
+      { wch: 10 }, // Giới tính
+      { wch: 10 }, // Năm sinh
+      { wch: 22 }, // Trình độ chuyên môn
+      { wch: 12 }, // Bằng cấp
+      { wch: 15 }, // Số điện thoại
+      { wch: 30 }, // Địa chỉ
+      { wch: 25 }  // Ghi chú
+    ];
+    ws['!cols'] = wscols;
+
+    XLSX.utils.book_append_sheet(wb, ws, "Danh_sach_nhan_vien");
+    XLSX.writeFile(wb, "Mau_nhap_lieu_nhan_vien.xlsx");
+  };
+
+  const handleExcelImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setExcelImportError(null);
+    setExcelImportSuccess(null);
+    setExcelImportLogs([]);
+    setParsedExcelUsers([]);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstream = evt.target?.result;
+        const wb = XLSX.read(bstream, { type: 'binary', cellDates: true });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json<any>(ws, { header: 1 });
+
+        if (data.length < 2) {
+          throw new Error('Tệp Excel trống hoặc không chứa dòng tiêu đề và dòng dữ liệu.');
+        }
+
+        const headers = data[0].map((h: any) => String(h || '').trim().toLowerCase());
+        
+        let nameColIdx = headers.findIndex((h: string) => h.includes('họ') || h.includes('tên') || h.includes('name'));
+        let emailColIdx = headers.findIndex((h: string) => h.includes('email') || h.includes('thư điện tử') || h.includes('thu dien tu'));
+        let deptColIdx = headers.findIndex((h: string) => h.includes('phòng') || h.includes('khoa') || h.includes('bộ phận') || h.includes('phong ban') || h.includes('department'));
+        let roleColIdx = headers.findIndex((h: string) => h.includes('vai trò') || h.includes('role') || h.includes('chức vụ trực') || h.includes('vai tro'));
+        let titleColIdx = headers.findIndex((h: string) => h.includes('chức danh') || h.includes('chức vụ') || h.includes('title'));
+        let genderColIdx = headers.findIndex((h: string) => h.includes('giới tính') || h.includes('gender') || h.includes('gioi tinh'));
+        let birthColIdx = headers.findIndex((h: string) => h.includes('năm sinh') || h.includes('birth') || h.includes('nam sinh'));
+        let qualColIdx = headers.findIndex((h: string) => h.includes('trình độ') || h.includes('chuyên môn') || h.includes('qualification'));
+        let degreeColIdx = headers.findIndex((h: string) => h.includes('bằng') || h.includes('học vị') || h.includes('degree'));
+        let phoneColIdx = headers.findIndex((h: string) => h.includes('điện thoại') || h.includes('phone') || h.includes('sđt') || h.includes('dien thoai'));
+        let addrColIdx = headers.findIndex((h: string) => h.includes('địa chỉ') || h.includes('address') || h.includes('dia chi'));
+        let notesColIdx = headers.findIndex((h: string) => h.includes('ghi chú') || h.includes('note') || h.includes('ghi chu'));
+
+        // Fallbacks for main indexes
+        if (nameColIdx === -1) nameColIdx = 0;
+        if (emailColIdx === -1) emailColIdx = 1;
+        if (deptColIdx === -1) deptColIdx = 2;
+        if (roleColIdx === -1) roleColIdx = 3;
+
+        const logs: string[] = [];
+        logs.push(`🔍 Hệ thống đã tự động liên kết các cột dữ liệu:`);
+        logs.push(`- Họ và tên: Cột ${nameColIdx + 1} ("${data[0][nameColIdx] || 'Không thấy'}")`);
+        logs.push(`- Email: Cột ${emailColIdx + 1} ("${data[0][emailColIdx] || 'Không thấy'}")`);
+        logs.push(`- Phòng ban: Cột ${deptColIdx + 1} ("${data[0][deptColIdx] || 'Không thấy'}")`);
+        logs.push(`- Vai trò: Cột ${roleColIdx + 1} ("${data[0][roleColIdx] || 'Không thấy'}")`);
+
+        const mapRoleStringToKey = (roleStr: string): 'admin' | 'truongKhoa' | 'phoKhoa' | 'general' | 'nhanVien' | 'sieuAm' | 'noiSoi' | 'xQuang' | 'dienTimLHN' | 'xetNghiem' => {
+          const str = String(roleStr || '').trim().toLowerCase();
+          if (str.includes('quản trị') || str === 'admin') return 'admin';
+          if (str.includes('trưởng khoa') || str === 'truongkhoa') return 'truongKhoa';
+          if (str.includes('phó khoa') || str === 'phokhoa') return 'phoKhoa';
+          if (str.includes('siêu âm') || str === 'sieuam') return 'sieuAm';
+          if (str.includes('nội soi') || str === 'noisoi') return 'noiSoi';
+          if (str.includes('xquang') || str.includes('x-quang') || str === 'xquang') return 'xQuang';
+          if (str.includes('điện tim') || str.includes('dientim') || str.includes('dien tim')) return 'dienTimLHN';
+          if (str.includes('xét nghiệm') || str === 'xetnghiem') return 'xetNghiem';
+          return 'general';
+        };
+
+        const importedUsersList: any[] = [];
+        let validRows = 0;
+        let invalidRows = 0;
+
+        for (let rowIdx = 1; rowIdx < data.length; rowIdx++) {
+          const row = data[rowIdx];
+          if (!row || row.length === 0) continue;
+
+          const rawName = row[nameColIdx];
+          const rawEmail = row[emailColIdx];
+          const rawDept = row[deptColIdx];
+
+          if (!rawName || !String(rawName).trim()) {
+            logs.push(`⚠️ Dòng ${rowIdx + 1}: Bỏ qua do thiếu "Họ và tên".`);
+            invalidRows++;
+            continue;
+          }
+
+          const name = String(rawName).trim();
+          const email = rawEmail ? String(rawEmail).trim().toLowerCase() : `${name.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Date.now()}@test.hospital.vn`;
+          const departmentName = rawDept ? String(rawDept).trim() : 'Phòng ban chung';
+          const role = roleColIdx !== -1 && row[roleColIdx] ? mapRoleStringToKey(row[roleColIdx]) : 'general';
+          
+          const title = titleColIdx !== -1 && row[titleColIdx] ? String(row[titleColIdx]).trim() : 'Bác Sĩ Điều Trị';
+          const gender = genderColIdx !== -1 && row[genderColIdx] ? String(row[genderColIdx]).trim() : 'Nam';
+          const birthYear = birthColIdx !== -1 && row[birthColIdx] ? Number(row[birthColIdx]) || undefined : undefined;
+          const qualification = qualColIdx !== -1 && row[qualColIdx] ? String(row[qualColIdx]).trim() : 'Bác sĩ';
+          const degree = degreeColIdx !== -1 && row[degreeColIdx] ? String(row[degreeColIdx]).trim() : 'ĐH';
+          const phone = phoneColIdx !== -1 && row[phoneColIdx] ? String(row[phoneColIdx]).trim() : '';
+          const address = addrColIdx !== -1 && row[addrColIdx] ? String(row[addrColIdx]).trim() : '';
+          const notes = notesColIdx !== -1 && row[notesColIdx] ? String(row[notesColIdx]).trim() : '';
+
+          importedUsersList.push({
+            name,
+            email,
+            departmentName,
+            role,
+            title,
+            gender,
+            birthYear,
+            qualification,
+            degree,
+            phone,
+            address,
+            notes,
+            status: 'Đang làm việc'
+          });
+
+          validRows++;
+        }
+
+        logs.push(`✅ Hoàn thành phân tích: phát hiện ${validRows} dòng hợp lệ, ${invalidRows} dòng lỗi/bỏ qua.`);
+        setExcelImportLogs(logs);
+        setParsedExcelUsers(importedUsersList);
+      } catch (err: any) {
+        setExcelImportError(err.message || 'Lỗi khi đọc file Excel. Vui lòng đảm bảo tệp tin đúng định dạng.');
+      }
+    };
+
+    reader.readAsBinaryString(file);
+    // Reset file input value
+    e.target.value = '';
+  };
+
+  const handleSyncExcelUsers = async () => {
+    if (parsedExcelUsers.length === 0) return;
+    setIsExcelImportingProgress(true);
+    setExcelImportError(null);
+
+    try {
+      const res = await fetch('/api/users/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ users: parsedExcelUsers })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setExcelImportSuccess(`Đồng bộ thành công! Đã xử lý xong: Thêm mới ${data.countCreated || 0} cán bộ và Cập nhật ${data.countUpdated || 0} cán bộ vào danh sách.`);
+        setParsedExcelUsers([]);
+        await fetchAllPersonnelData();
+        setTimeout(() => {
+          setExcelImportSuccess(null);
+          setIsExcelImportOpen(false);
+        }, 5000);
+      } else {
+        throw new Error('Lỗi từ hệ thống khi đồng bộ hàng loạt.');
+      }
+    } catch (err: any) {
+      setExcelImportError(err.message || 'Không thể đồng bộ danh sách nhân sự. Vui lòng kiểm tra lại kết nối.');
+    } finally {
+      setIsExcelImportingProgress(false);
+    }
+  };
 
   // Form states - Department
   const [editingDeptId, setEditingDeptId] = useState<string | null>(null);
@@ -498,6 +1018,15 @@ export default function PersonnelManager({
 
         {/* Workspace controls */}
         <div className="flex items-center gap-2 self-start md:self-center">
+          {activeSubTab === 'staff' && (
+            <button
+              onClick={() => setIsExcelImportOpen(!isExcelImportOpen)}
+              className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-2 text-[11px] font-bold rounded-lg border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-700 shadow-3xs active:scale-98 transition dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              {isExcelImportOpen ? 'Đóng Nhập Excel' : 'Nhập Excel'}
+            </button>
+          )}
           {activeSubTab !== 'logs' && activeSubTab !== 'printSettings' && (
             <button
               onClick={() => {
@@ -637,6 +1166,95 @@ export default function PersonnelManager({
       {activeSubTab === 'staff' && (
         <div className="space-y-4">
           
+          {isExcelImportOpen && (
+            <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4 animate-fade-in shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-150 dark:border-slate-800 pb-3">
+                <div className="space-y-1">
+                  <h4 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                    <FileSpreadsheet className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                    Nhập danh sách nhân sự từ Excel
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                    Hệ thống tự động đồng bộ hàng loạt hồ sơ, phòng tránh trùng lặp email và tự động bổ sung lịch sử hệ thống.
+                  </p>
+                </div>
+                <button
+                  onClick={handleDownloadTemplate}
+                  className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-3xs transition self-start sm:self-center"
+                >
+                  <FileDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  Tải Excel mẫu (.xlsx) 📥
+                </button>
+              </div>
+
+              {/* Upload drag drop style area */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white dark:bg-slate-950 border-2 border-dashed border-slate-250 dark:border-slate-800 hover:border-emerald-500 dark:hover:border-emerald-500 rounded-xl p-6 transition text-center relative flex flex-col justify-center items-center min-h-[140px]">
+                  <input 
+                    type="file" 
+                    accept=".xlsx, .xls, .csv" 
+                    onChange={handleExcelImportFile}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    disabled={isExcelImportingProgress}
+                  />
+                  <UploadCloud className="w-8 h-8 text-slate-400 dark:text-slate-600 mb-2 animate-pulse" />
+                  <p className="text-xs font-black text-slate-800 dark:text-slate-200">
+                    Kéo & thả tệp Excel vào đây hoặc click để duyệt
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Định dạng hỗ trợ: .xlsx, .xls, .csv
+                  </p>
+                </div>
+
+                {/* Parsing logs */}
+                <div className="flex flex-col justify-between space-y-2">
+                  <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-450 dark:text-slate-500">
+                    Nhật ký phân tích dữ liệu:
+                  </span>
+                  <div className="flex-1 bg-slate-950 text-slate-300 font-mono text-[10px] p-3 rounded-lg overflow-y-auto max-h-[110px] space-y-1 shadow-inner">
+                    {excelImportLogs.length > 0 ? (
+                      excelImportLogs.map((log, lIdx) => (
+                        <div key={lIdx} className={log.includes('✅') ? 'text-emerald-400 font-bold' : log.includes('⚠️') ? 'text-amber-400' : log.includes('❌') ? 'text-rose-400 font-black' : 'text-slate-400'}>
+                          {log}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-slate-500 italic text-center py-4">Chưa tải tệp nào lên...</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Feedback and trigger button */}
+              {excelImportError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg text-xs font-bold leading-relaxed shadow-3xs dark:bg-rose-950/30 dark:border-rose-900/50 dark:text-rose-300 animate-fade-in">
+                  ⚠️ {excelImportError}
+                </div>
+              )}
+
+              {excelImportSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-bold leading-relaxed shadow-3xs dark:bg-emerald-950/30 dark:border-emerald-900/50 dark:text-emerald-300 animate-fade-in">
+                  ✅ {excelImportSuccess}
+                </div>
+              )}
+
+              {parsedExcelUsers.length > 0 && (
+                <div className="flex items-center justify-between bg-emerald-500/10 dark:bg-emerald-400/5 border border-emerald-500/25 p-3 rounded-xl animate-fade-in">
+                  <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                    Đã chuẩn bị sẵn <span className="font-extrabold underline">{parsedExcelUsers.length}</span> tài khoản cán bộ để đồng bộ vào cơ sở dữ liệu.
+                  </div>
+                  <button
+                    onClick={handleSyncExcelUsers}
+                    disabled={isExcelImportingProgress}
+                    className="cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] px-4 py-2 rounded-lg shadow-3xs hover:shadow-2xs active:scale-98 transition disabled:opacity-50 shrink-0"
+                  >
+                    {isExcelImportingProgress ? 'Đang đồng bộ...' : 'Đồng bộ ngay 🚀'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Quick Staff Statistics Dashboard Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3 space-y-1">
@@ -924,21 +1542,14 @@ export default function PersonnelManager({
 
           {/* Staff Directory Table List */}
           <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-md bg-white">
-            <table className="w-full text-left border-collapse min-w-[1000px]">
+            <table className="w-full text-left border-collapse min-w-[750px]">
               <thead className="bg-slate-800 text-white text-[10px] font-black uppercase tracking-wider select-none border-b border-slate-200">
                 <tr>
                   <th className="py-3 px-3 text-center w-12 min-w-[48px] max-w-[48px] border-r border-slate-700/50 sticky left-0 bg-slate-800 z-20">STT</th>
-                  <th className="py-3 px-4 min-w-[160px] border-r border-slate-700/50 sticky left-12 bg-slate-800 z-20">Họ và tên</th>
-                  <th className="py-3 px-2 text-center w-14 border-r border-slate-700/50">Tuổi</th>
+                  <th className="py-3 px-4 min-w-[160px] border-r border-slate-700/50 sticky left-12 bg-slate-800 z-20">Họ và tên (Xem chi tiết 👤)</th>
                   <th className="py-3 px-3 min-w-[120px] border-r border-slate-700/50">Chức danh</th>
-                  <th className="py-3 px-2 text-center w-16 border-r border-slate-700/50">Giới</th>
-                  <th className="py-3 px-2 text-center w-18 border-r border-slate-700/50">Năm sinh</th>
-                  <th className="py-3 px-3 text-center min-w-[110px] border-r border-slate-700/50">Trình độ</th>
-                  <th className="py-3 px-2 text-center w-18 border-r border-slate-700/50">Bằng cấp</th>
                   <th className="py-3 px-4 min-w-[140px] border-r border-slate-700/50">Bộ phận</th>
                   <th className="py-3 px-4 min-w-[180px] border-r border-slate-700/50">Số điện thoại / Email</th>
-                  <th className="py-3 px-4 min-w-[160px] border-r border-slate-700/50">Địa chỉ</th>
-                  <th className="py-3 px-4 min-w-[150px] border-r border-slate-700/50">Ghi chú</th>
                   <th className="py-3 px-3 text-center min-w-[110px] border-r border-slate-700/50">Trạng thái</th>
                   <th className="py-3 px-4 text-center w-24">Phím nhấn</th>
                 </tr>
@@ -964,13 +1575,6 @@ export default function PersonnelManager({
                     statusBadge = 'bg-red-50 text-red-700 border-red-200 font-extrabold';
                   }
 
-                  // Degree colors lookup
-                  let degreeBadge = 'bg-slate-100 text-slate-800';
-                  if (staff.degree === 'Trên ĐH') degreeBadge = 'bg-purple-100 text-purple-800 border border-purple-200 font-extrabold';
-                  else if (staff.degree === 'ĐH') degreeBadge = 'bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold';
-                  else if (staff.degree === 'CĐ') degreeBadge = 'bg-blue-105 text-blue-800 border border-blue-200';
-                  else if (staff.degree === 'TC') degreeBadge = 'bg-slate-200 text-slate-700';
-
                   return (
                     <tr 
                       key={staff.id} 
@@ -981,12 +1585,19 @@ export default function PersonnelManager({
                       <td className={`py-3 px-3 text-center font-bold text-slate-500 border-r border-slate-100 sticky left-0 z-10 w-12 min-w-[48px] max-w-[48px] transition-all group-hover:bg-slate-100/80 ${
                         idx % 2 === 1 ? 'bg-[#f8fafc]' : 'bg-white'
                       }`}>{idx + 1}</td>
-                      <td className={`py-3 px-4 border-r border-slate-200 select-all sticky left-12 z-10 min-w-[160px] transition-all group-hover:bg-slate-100/80 ${
+                      <td className={`py-3 px-4 border-r border-slate-200 sticky left-12 z-10 min-w-[160px] transition-all group-hover:bg-slate-100/80 ${
                         idx % 2 === 1 ? 'bg-[#f8fafc]' : 'bg-white'
                       }`}>
                         <div className="flex flex-col">
-                          <span className="font-extrabold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                            {staff.name}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setViewingStaff(staff);
+                              setIsDetailModalOpen(true);
+                            }}
+                            className="text-left font-extrabold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline flex items-center gap-1.5 flex-wrap cursor-pointer"
+                          >
+                            <span>{staff.name}</span>
                             {isAdmin && (
                               <span className="bg-indigo-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase select-none flex items-center gap-1 scale-90" title="Quản trị viên">
                                 <Shield className="w-2.5 h-2.5" />
@@ -1008,7 +1619,7 @@ export default function PersonnelManager({
                                 NV
                               </span>
                             )}
-                          </span>
+                          </button>
                           {staff.passwordResetRequested && (
                             <span className="text-[9px] text-amber-600 font-black mt-0.5 animate-pulse">
                               ⚠️ Request Reset
@@ -1016,20 +1627,7 @@ export default function PersonnelManager({
                           )}
                         </div>
                       </td>
-                      <td className="py-3 px-2 text-center text-slate-800 font-bold border-r border-slate-100">{age}</td>
                       <td className="py-3 px-3 border-r border-slate-100 font-semibold">{staff.title}</td>
-                      <td className="py-3 px-2 text-center font-extrabold border-r border-slate-100">
-                        <span className={staff.gender === 'Nữ' ? 'text-pink-600' : 'text-slate-600'}>
-                          {staff.gender || 'Nam'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2 text-center font-semibold text-slate-600 border-r border-slate-100">{staff.birthYear || '---'}</td>
-                      <td className="py-3 px-3 text-center border-r border-slate-100 font-medium">{staff.qualification || 'Bác sĩ'}</td>
-                      <td className="py-3 px-2 text-center border-r border-slate-100">
-                        <span className={`text-[9.5px] px-2 py-0.5 rounded ${degreeBadge}`}>
-                          {staff.degree || 'ĐH'}
-                        </span>
-                      </td>
                       <td className="py-3 px-4 border-r border-slate-100">
                         <span className="font-extrabold text-slate-800">{staff.departmentName}</span>
                       </td>
@@ -1040,12 +1638,6 @@ export default function PersonnelManager({
                         <div className="text-[10px] text-slate-400 font-mono leading-none select-all">
                           {staff.email}
                         </div>
-                      </td>
-                      <td className="py-3 px-4 border-r border-slate-100 font-medium text-slate-500 leading-tight">
-                        {staff.address || '---'}
-                      </td>
-                      <td className="py-3 px-4 border-r border-slate-100 font-semibold text-slate-600 leading-tight max-w-[200px] break-words">
-                        {staff.notes || '---'}
                       </td>
                       <td className="py-3 px-3 text-center border-r border-slate-100">
                         <span className={`text-[9.5px] px-2 py-0.5 rounded-full border inline-block whitespace-nowrap ${statusBadge}`}>
@@ -1094,6 +1686,192 @@ export default function PersonnelManager({
               </div>
             )}
           </div>
+
+          {/* Staff Detail View Modal */}
+          {isDetailModalOpen && viewingStaff && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[10000] p-4 animate-fade-in text-slate-800 dark:text-slate-100">
+              <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+                {/* Modal Header with solid theme background */}
+                <div 
+                  className="px-6 py-5 text-white flex items-center justify-between relative"
+                  style={{ backgroundColor: systemSettings?.themeColor || '#4f46e5' }}
+                >
+                  <div className="space-y-1">
+                    <span className="text-[10px] uppercase tracking-wider font-extrabold text-white/80 flex items-center gap-1">
+                      <Info className="w-3.5 h-3.5" /> Chi tiết hồ sơ nhân sự
+                    </span>
+                    <h3 className="text-lg font-black tracking-tight">{viewingStaff.name}</h3>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setIsDetailModalOpen(false);
+                      setViewingStaff(null);
+                    }}
+                    className="p-1.5 rounded-full hover:bg-white/20 transition cursor-pointer text-white"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Modal Body */}
+                <div className="p-6 overflow-y-auto space-y-6">
+                  {/* Summary Banner with custom styling */}
+                  <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-150 dark:border-slate-850">
+                    <div 
+                      className="w-14 h-14 rounded-full flex items-center justify-center font-black text-xl text-white select-none shadow-sm"
+                      style={{ backgroundColor: systemSettings?.themeColor || '#4f46e5' }}
+                    >
+                      {viewingStaff.name.split(' ').pop()?.[0]?.toUpperCase() || 'U'}
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-extrabold text-sm text-slate-900 dark:text-white">{viewingStaff.name}</span>
+                        {viewingStaff.role === 'admin' && (
+                          <span className="bg-indigo-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase">
+                            AD
+                          </span>
+                        )}
+                        {viewingStaff.role === 'truongKhoa' && (
+                          <span className="bg-emerald-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase">
+                            TK
+                          </span>
+                        )}
+                        {viewingStaff.role === 'phoKhoa' && (
+                          <span className="bg-blue-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase">
+                            PK
+                          </span>
+                        )}
+                        {(!viewingStaff.role || viewingStaff.role === 'general' || viewingStaff.role === 'nhanVien') && (
+                          <span className="bg-slate-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase">
+                            NV
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-550 dark:text-slate-400 font-bold">{viewingStaff.title || 'Chưa rõ chức danh'}</p>
+                    </div>
+                  </div>
+
+                  {/* Grid of Attributes */}
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3.5 text-xs">
+                    <div className="space-y-1">
+                      <span className="text-[10px] uppercase font-extrabold text-slate-450 dark:text-slate-500 tracking-wider">Bộ phận công tác</span>
+                      <p className="font-extrabold text-slate-850 dark:text-slate-200 flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        {viewingStaff.departmentName || '---'}
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="text-[10px] uppercase font-extrabold text-slate-450 dark:text-slate-500 tracking-wider">Trạng thái</span>
+                      <div>
+                        <span className={`text-[10px] px-2.5 py-0.5 rounded-full border inline-block font-extrabold ${
+                          viewingStaff.status === 'Đang làm việc' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/50' :
+                          viewingStaff.status === 'Nghỉ không lương' ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400' :
+                          viewingStaff.status === 'Nghỉ thai sản' ? 'bg-pink-50 text-pink-700 border-pink-200' : 'bg-red-50 text-red-700 border-red-200'
+                        }`}>
+                          {viewingStaff.status || '---'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1 border-t border-slate-100 dark:border-slate-850 pt-2.5">
+                      <span className="text-[10px] uppercase font-extrabold text-slate-450 dark:text-slate-500 tracking-wider">Năm sinh / Tuổi</span>
+                      <p className="font-bold text-slate-805 dark:text-slate-300 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        {viewingStaff.birthYear ? `${viewingStaff.birthYear} (Tuổi: ${new Date().getFullYear() - viewingStaff.birthYear})` : '---'}
+                      </p>
+                    </div>
+
+                    <div className="space-y-1 border-t border-slate-100 dark:border-slate-850 pt-2.5">
+                      <span className="text-[10px] uppercase font-extrabold text-slate-450 dark:text-slate-500 tracking-wider">Giới tính</span>
+                      <p className="font-bold text-slate-805 dark:text-slate-300">
+                        {viewingStaff.gender || 'Nam'}
+                      </p>
+                    </div>
+
+                    <div className="space-y-1 border-t border-slate-100 dark:border-slate-850 pt-2.5">
+                      <span className="text-[10px] uppercase font-extrabold text-slate-450 dark:text-slate-500 tracking-wider">Trình độ chuyên môn</span>
+                      <p className="font-bold text-slate-805 dark:text-slate-300 flex items-center gap-1.5">
+                        <Briefcase className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        {viewingStaff.qualification || 'Bác sĩ'}
+                      </p>
+                    </div>
+
+                    <div className="space-y-1 border-t border-slate-100 dark:border-slate-850 pt-2.5">
+                      <span className="text-[10px] uppercase font-extrabold text-slate-450 dark:text-slate-500 tracking-wider">Bằng cấp</span>
+                      <div>
+                        <span className={`text-[10px] px-2 py-0.5 rounded font-black ${
+                          viewingStaff.degree === 'Trên ĐH' ? 'bg-purple-100 text-purple-800 border border-purple-200' :
+                          viewingStaff.degree === 'ĐH' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                          viewingStaff.degree === 'CĐ' ? 'bg-blue-105 text-blue-800 border border-blue-200' : 'bg-slate-200 text-slate-700'
+                        }`}>
+                          {viewingStaff.degree || 'ĐH'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="col-span-2 space-y-1 border-t border-slate-100 dark:border-slate-850 pt-2.5">
+                      <span className="text-[10px] uppercase font-extrabold text-slate-450 dark:text-slate-500 tracking-wider">Số điện thoại</span>
+                      <p className="font-bold text-slate-805 dark:text-slate-300 flex items-center gap-1.5">
+                        <PhoneCall className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        {viewingStaff.phone ? (
+                          <a href={`tel:${viewingStaff.phone}`} className="hover:underline hover:text-indigo-600">{viewingStaff.phone}</a>
+                        ) : '---'}
+                      </p>
+                    </div>
+
+                    <div className="col-span-2 space-y-1 border-t border-slate-100 dark:border-slate-850 pt-2.5">
+                      <span className="text-[10px] uppercase font-extrabold text-slate-450 dark:text-slate-500 tracking-wider">Thư điện tử (Email)</span>
+                      <p className="font-mono text-slate-805 dark:text-slate-300 flex items-center gap-1.5 select-all">
+                        <Mail className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        {viewingStaff.email ? (
+                          <a href={`mailto:${viewingStaff.email}`} className="hover:underline hover:text-indigo-600">{viewingStaff.email}</a>
+                        ) : '---'}
+                      </p>
+                    </div>
+
+                    <div className="col-span-2 space-y-1 border-t border-slate-100 dark:border-slate-850 pt-2.5">
+                      <span className="text-[10px] uppercase font-extrabold text-slate-450 dark:text-slate-500 tracking-wider">Địa chỉ liên hệ</span>
+                      <p className="font-bold text-slate-805 dark:text-slate-300 flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        {viewingStaff.address || '---'}
+                      </p>
+                    </div>
+
+                    <div className="col-span-2 space-y-1 border-t border-slate-100 dark:border-slate-850 pt-2.5">
+                      <span className="text-[10px] uppercase font-extrabold text-slate-450 dark:text-slate-500 tracking-wider">Ghi chú</span>
+                      <p className="font-semibold text-slate-600 dark:text-slate-400 italic bg-slate-50 dark:bg-slate-900 p-2.5 rounded-lg border border-slate-100 dark:border-slate-850">
+                        {viewingStaff.notes || 'Không có ghi chú nào thêm.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="px-6 py-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-150 dark:border-slate-850 flex items-center justify-end gap-2.5">
+                  <button
+                    onClick={() => {
+                      setIsDetailModalOpen(false);
+                      setViewingStaff(null);
+                      handleEditStaffClick(viewingStaff);
+                    }}
+                    className="px-4 py-2 rounded-lg bg-white dark:bg-slate-950 hover:bg-slate-50 border border-slate-200 dark:border-slate-850 text-slate-700 dark:text-slate-300 text-xs font-black shadow-3xs cursor-pointer active:scale-98 transition flex items-center gap-1"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" /> Chỉnh sửa hồ sơ
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsDetailModalOpen(false);
+                      setViewingStaff(null);
+                    }}
+                    className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-black shadow-3xs cursor-pointer active:scale-98 transition"
+                  >
+                    Đóng lại
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1713,15 +2491,95 @@ export default function PersonnelManager({
                 </div>
 
                 {systemSettings.logoPreset === 'custom' && (
-                  <div className="space-y-1 animate-fade-in">
-                    <label className="text-[9.5px] font-extrabold text-slate-500 uppercase block">Đường dẫn logo tùy chỉnh (URL ảnh PNG):</label>
-                    <input
-                      type="text"
-                      value={systemSettings.logoUrl || ''}
-                      onChange={(e) => onUpdateSettings?.({ logoUrl: e.target.value })}
-                      className="w-full text-xs font-mono bg-white border border-slate-200 rounded-lg px-2.5 py-2 hover:border-slate-305 transition focus:ring-1 focus:ring-rose-500 focus:outline-none"
-                      placeholder="https://example.com/logo.png"
-                    />
+                  <div className="space-y-3 animate-fade-in border-t border-slate-200/50 pt-3">
+                    <label className="text-[10px] font-extrabold text-slate-600 uppercase block">Logo tùy chỉnh:</label>
+                    
+                    {/* Drag & Drop / File Select Zone */}
+                    <div
+                      onDragOver={handleLogoDragOver}
+                      onDragLeave={handleLogoDragLeave}
+                      onDrop={handleLogoDrop}
+                      className={`border-2 border-dashed rounded-xl p-4 text-center transition-all ${
+                        isDraggingLogo 
+                          ? 'border-rose-500 bg-rose-50/30 shadow-xs' 
+                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        id="logo-upload-input"
+                        className="hidden"
+                        accept="image/*"
+                        onChange={handleLogoFileUpload}
+                        disabled={logoUploading}
+                      />
+                      <label 
+                        htmlFor="logo-upload-input" 
+                        className="cursor-pointer flex flex-col items-center justify-center space-y-2 group"
+                      >
+                        {logoUploading ? (
+                          <div className="w-8 h-8 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                        ) : systemSettings.logoUrl ? (
+                          <div className="relative">
+                            <img 
+                              src={systemSettings.logoUrl} 
+                              alt="Custom Logo" 
+                              className="max-h-16 max-w-full object-contain rounded border border-slate-100 shadow-2xs p-1"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div className="absolute -bottom-1 -right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-3xs">
+                              <Check className="w-3 h-3 font-black" />
+                            </div>
+                          </div>
+                        ) : (
+                          <UploadCloud className="w-8 h-8 text-slate-400 group-hover:text-rose-500 transition-colors" />
+                        )}
+                        <div className="text-xs font-semibold text-slate-700">
+                          {logoUploading 
+                            ? "Đang tải ảnh lên..." 
+                            : isDraggingLogo 
+                              ? "Thả ảnh vào đây để tải lên" 
+                              : "Kéo thả ảnh hoặc nhấp để chọn tệp"}
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-semibold">Hỗ trợ PNG, JPG, WEBP, SVG (Tối đa 5MB)</p>
+                      </label>
+                    </div>
+
+                    {/* Status notifications */}
+                    {logoUploadError && (
+                      <div className="text-[10.5px] text-red-600 bg-red-50 p-2 rounded-lg border border-red-100/50 font-bold">
+                        {logoUploadError}
+                      </div>
+                    )}
+                    {logoUploadSuccess && (
+                      <div className="text-[10.5px] text-emerald-700 bg-emerald-50 p-2 rounded-lg border border-emerald-100/50 font-bold flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5 text-emerald-500 font-black" />
+                        Tải ảnh lên thành công!
+                      </div>
+                    )}
+
+                    {/* Fallback Custom URL input */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[9px] font-extrabold text-slate-400 uppercase block">Hoặc đường dẫn logo URL:</label>
+                        {systemSettings.logoUrl && (
+                          <button
+                            type="button"
+                            onClick={() => onUpdateSettings?.({ logoUrl: '' })}
+                            className="text-[9.5px] font-bold text-rose-600 hover:underline cursor-pointer"
+                          >
+                            Xóa ảnh hiện tại
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        value={systemSettings.logoUrl || ''}
+                        onChange={(e) => onUpdateSettings?.({ logoUrl: e.target.value })}
+                        className="w-full text-xs font-mono bg-white border border-slate-200 rounded-lg px-2.5 py-2 hover:border-slate-305 transition focus:ring-1 focus:ring-rose-500 focus:outline-none"
+                        placeholder="https://example.com/logo.png"
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -1810,15 +2668,95 @@ export default function PersonnelManager({
                   </div>
 
                   {systemSettings.bannerPreset === 'custom' && (
-                    <div className="space-y-1 animate-fade-in pt-1">
-                      <label className="text-[9.5px] font-extrabold text-slate-500 uppercase block">Đường dẫn ảnh banner (URL ảnh chất lượng):</label>
-                      <input
-                        type="text"
-                        value={systemSettings.bannerUrl || ''}
-                        onChange={(e) => onUpdateSettings?.({ bannerUrl: e.target.value })}
-                        className="w-full text-xs font-mono bg-white border border-slate-200 rounded-lg px-2.5 py-2 hover:border-slate-305 transition focus:ring-1 focus:ring-rose-500 focus:outline-none"
-                        placeholder="https://example.com/banner-hospital.jpg"
-                      />
+                    <div className="space-y-3 animate-fade-in border-t border-slate-200/50 pt-3">
+                      <label className="text-[10px] font-extrabold text-slate-600 uppercase block">Ảnh banner tùy chỉnh:</label>
+                      
+                      {/* Drag & Drop / File Select Zone */}
+                      <div
+                        onDragOver={handleBannerDragOver}
+                        onDragLeave={handleBannerDragLeave}
+                        onDrop={handleBannerDrop}
+                        className={`border-2 border-dashed rounded-xl p-4 text-center transition-all ${
+                          isDraggingBanner 
+                            ? 'border-rose-500 bg-rose-50/30 shadow-xs' 
+                            : 'border-slate-200 bg-white hover:border-slate-300'
+                        }`}
+                      >
+                        <input
+                          type="file"
+                          id="banner-upload-input"
+                          className="hidden"
+                          accept="image/*"
+                          onChange={handleBannerFileUpload}
+                          disabled={bannerUploading}
+                        />
+                        <label 
+                          htmlFor="banner-upload-input" 
+                          className="cursor-pointer flex flex-col items-center justify-center space-y-2 group"
+                        >
+                          {bannerUploading ? (
+                            <div className="w-8 h-8 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                          ) : systemSettings.bannerUrl ? (
+                            <div className="relative max-w-full flex justify-center">
+                              <img 
+                                src={systemSettings.bannerUrl} 
+                                alt="Custom Banner" 
+                                className="max-h-24 max-w-full object-contain rounded border border-slate-100 shadow-2xs p-1"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute -bottom-1 -right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-3xs">
+                                <Check className="w-3 h-3 font-black" />
+                              </div>
+                            </div>
+                          ) : (
+                            <UploadCloud className="w-8 h-8 text-slate-400 group-hover:text-rose-500 transition-colors" />
+                          )}
+                          <div className="text-xs font-semibold text-slate-700">
+                            {bannerUploading 
+                              ? "Đang tải ảnh lên..." 
+                              : isDraggingBanner 
+                                ? "Thả ảnh vào đây để tải lên" 
+                                : "Kéo thả ảnh hoặc nhấp để chọn tệp"}
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-semibold">Hỗ trợ PNG, JPG, WEBP, SVG (Tối đa 5MB)</p>
+                        </label>
+                      </div>
+
+                      {/* Status notifications */}
+                      {bannerUploadError && (
+                        <div className="text-[10.5px] text-red-600 bg-red-50 p-2 rounded-lg border border-red-100/50 font-bold">
+                          {bannerUploadError}
+                        </div>
+                      )}
+                      {bannerUploadSuccess && (
+                        <div className="text-[10.5px] text-emerald-700 bg-emerald-50 p-2 rounded-lg border border-emerald-100/50 font-bold flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5 text-emerald-500 font-black" />
+                          Tải ảnh lên thành công!
+                        </div>
+                      )}
+
+                      {/* Fallback Custom URL input */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[9px] font-extrabold text-slate-400 uppercase block">Hoặc đường dẫn ảnh banner (URL):</label>
+                          {systemSettings.bannerUrl && (
+                            <button
+                              type="button"
+                              onClick={() => onUpdateSettings?.({ bannerUrl: '' })}
+                              className="text-[9.5px] font-bold text-rose-600 hover:underline cursor-pointer"
+                            >
+                              Xóa ảnh hiện tại
+                            </button>
+                          )}
+                        </div>
+                        <input
+                          type="text"
+                          value={systemSettings.bannerUrl || ''}
+                          onChange={(e) => onUpdateSettings?.({ bannerUrl: e.target.value })}
+                          className="w-full text-xs font-mono bg-white border border-slate-200 rounded-lg px-2.5 py-2 hover:border-slate-305 transition focus:ring-1 focus:ring-rose-500 focus:outline-none"
+                          placeholder="https://example.com/banner-hospital.jpg"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>

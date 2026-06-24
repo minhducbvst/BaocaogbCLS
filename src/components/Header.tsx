@@ -106,22 +106,31 @@ export default function Header({
         <div className="flex items-center justify-between h-13">
           {/* Logo / Brand */}
           <div className="flex items-center space-x-2.5">
-            <div 
-              className="p-1.5 rounded text-white shadow-sm shrink-0 flex items-center justify-center transition-all duration-300"
-              style={{ backgroundColor: systemSettings?.themeColor || '#4f46e5' }}
-            >
-              {systemSettings?.logoPreset === 'custom' && systemSettings?.logoUrl ? (
-                <img src={systemSettings.logoUrl} className="w-4 h-4 object-cover rounded" referrerPolicy="no-referrer" alt="Logo" />
-              ) : systemSettings?.logoPreset === 'shield' ? (
-                <ShieldCheck className="w-4 h-4" />
-              ) : systemSettings?.logoPreset === 'cross' ? (
-                <Heart className="w-4 h-4 fill-white" />
-              ) : systemSettings?.logoPreset === 'custom' ? (
-                <Award className="w-4 h-4" />
-              ) : (
-                <Hospital className="w-4 h-4" />
-              )}
-            </div>
+            {systemSettings?.logoPreset === 'custom' && systemSettings?.logoUrl ? (
+              <div className="shrink-0 flex items-center justify-center transition-all duration-300">
+                <img 
+                  src={systemSettings.logoUrl} 
+                  className="h-10 w-auto max-w-[120px] object-contain rounded" 
+                  referrerPolicy="no-referrer" 
+                  alt="Logo" 
+                />
+              </div>
+            ) : (
+              <div 
+                className="p-1.5 rounded text-white shadow-sm shrink-0 flex items-center justify-center transition-all duration-300"
+                style={{ backgroundColor: systemSettings?.themeColor || '#4f46e5' }}
+              >
+                {systemSettings?.logoPreset === 'shield' ? (
+                  <ShieldCheck className="w-4 h-4" />
+                ) : systemSettings?.logoPreset === 'cross' ? (
+                  <Heart className="w-4 h-4 fill-white" />
+                ) : systemSettings?.logoPreset === 'custom' ? (
+                  <Award className="w-4 h-4" />
+                ) : (
+                  <Hospital className="w-4 h-4" />
+                )}
+              </div>
+            )}
             <div>
               <h1 className={`text-sm font-bold tracking-tight flex items-center gap-1.5 leading-none ${titleClass}`}>
                 {systemSettings?.systemTitle || 'Giao Ban Khoa Cận Lâm Sàng'}

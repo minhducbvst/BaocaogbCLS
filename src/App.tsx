@@ -790,15 +790,15 @@ export default function App() {
             backgroundPosition: 'center',
           }}
         >
-          <div className="space-y-1 relative z-10 max-w-2xl">
-            <div className="flex items-center gap-1.5 text-[10px] text-indigo-300 font-bold tracking-wider uppercase">
-              <Building2 className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
+          <div className="space-y-1.5 relative z-10 max-w-2xl">
+            <div className="flex items-center gap-1.5 text-[11px] text-indigo-200 font-extrabold tracking-wider uppercase drop-shadow-sm">
+              <Building2 className="w-3.5 h-3.5 text-indigo-200 shrink-0" />
               Hệ thống hành chính Bệnh Viện Đa Khoa
             </div>
-            <h2 className="text-base sm:text-lg font-extrabold tracking-tight">
+            <h2 className="text-lg sm:text-xl md:text-2xl font-black tracking-tight text-white drop-shadow-md">
               {systemSettings.systemTitle}
             </h2>
-            <p className="text-[11px] text-slate-305 leading-normal opacity-90 max-w-xl">
+            <p className="text-xs sm:text-sm text-slate-100 font-medium leading-relaxed max-w-xl mt-1.5 drop-shadow-sm">
               {systemSettings.systemSubtitle}
             </p>
           </div>
@@ -891,7 +891,7 @@ export default function App() {
         </div>
 
         {/* Tab Content Display */}
-        <div className="tab-container animate-fade-in duration-200">
+        <div className="tab-container relative z-20 animate-fade-in duration-200">
           {activeTab === 'dashboard' && (
             <Dashboard reports={reports} procedures={procedures} />
           )}

@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -16,6 +17,13 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: "10mb" }));
+
+// Ensure upload directory exists
+const UPLOAD_DIR = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+app.use("/uploads", express.static(UPLOAD_DIR));
 
 // Initialize Gemini Client
 const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -565,6 +573,57 @@ app.post("/api/settings", (req, res) => {
   if (!newSettings) {
     return res.status(400).json({ error: "Dữ liệu cấu hình không hợp lệ." });
   }
+
+  // If the new settings set a different logoUrl or change logoPreset, and we had an old local uploaded logo, delete it!
+  if (
+    (newSettings.logoUrl !== undefined && newSettings.logoUrl !== systemSettings.logoUrl) ||
+    (newSettings.logoPreset !== undefined && newSettings.logoPreset !== systemSettings.logoPreset)
+  ) {
+    if (systemSettings.logoUrl && systemSettings.logoUrl.startsWith("/uploads/")) {
+      const willDelete = 
+        (newSettings.logoPreset !== undefined && newSettings.logoPreset !== 'custom') || 
+        (newSettings.logoUrl !== undefined && newSettings.logoUrl !== systemSettings.logoUrl);
+
+      if (willDelete) {
+        const oldFilename = systemSettings.logoUrl.replace("/uploads/", "");
+        const oldFilePath = path.join(UPLOAD_DIR, oldFilename);
+        if (fs.existsSync(oldFilePath)) {
+          try {
+            fs.unlinkSync(oldFilePath);
+            console.log(`Deleted old uploaded logo upon settings change: ${oldFilePath}`);
+          } catch (unlinkErr) {
+            console.error(`Failed to delete old logo file: ${oldFilePath}`, unlinkErr);
+          }
+        }
+      }
+    }
+  }
+
+  // If the new settings set a different bannerUrl or change bannerPreset, and we had an old local uploaded banner, delete it!
+  if (
+    (newSettings.bannerUrl !== undefined && newSettings.bannerUrl !== systemSettings.bannerUrl) ||
+    (newSettings.bannerPreset !== undefined && newSettings.bannerPreset !== systemSettings.bannerPreset)
+  ) {
+    if (systemSettings.bannerUrl && systemSettings.bannerUrl.startsWith("/uploads/")) {
+      const willDelete = 
+        (newSettings.bannerPreset !== undefined && newSettings.bannerPreset !== 'custom') || 
+        (newSettings.bannerUrl !== undefined && newSettings.bannerUrl !== systemSettings.bannerUrl);
+
+      if (willDelete) {
+        const oldFilename = systemSettings.bannerUrl.replace("/uploads/", "");
+        const oldFilePath = path.join(UPLOAD_DIR, oldFilename);
+        if (fs.existsSync(oldFilePath)) {
+          try {
+            fs.unlinkSync(oldFilePath);
+            console.log(`Deleted old uploaded banner upon settings change: ${oldFilePath}`);
+          } catch (unlinkErr) {
+            console.error(`Failed to delete old banner file: ${oldFilePath}`, unlinkErr);
+          }
+        }
+      }
+    }
+  }
+
   systemSettings = {
     ...systemSettings,
     ...newSettings
@@ -584,6 +643,160 @@ app.post("/api/settings", (req, res) => {
   saveDocument("auditLogs", newLog.id, newLog);
 
   res.json({ success: true, settings: systemSettings });
+});
+
+app.post("/api/upload-logo", (req, res) => {
+  try {
+    const { filename, base64Data } = req.body;
+    if (!filename || !base64Data) {
+      return res.status(400).json({ error: "Thiếu tên tệp hoặc dữ liệu hình ảnh." });
+    }
+
+    // Decode base64
+    const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      return res.status(400).json({ error: "Định dạng dữ liệu base64 không hợp lệ." });
+    }
+
+    const fileType = matches[1];
+    const buffer = Buffer.from(matches[2], 'base64');
+
+    // Determine extension
+    let ext = ".png";
+    if (fileType.includes("jpeg") || fileType.includes("jpg")) {
+      ext = ".jpg";
+    } else if (fileType.includes("gif")) {
+      ext = ".gif";
+    } else if (fileType.includes("svg")) {
+      ext = ".svg";
+    } else if (fileType.includes("webp")) {
+      ext = ".webp";
+    }
+
+    // Delete old local uploaded file if it exists
+    if (systemSettings.logoUrl && systemSettings.logoUrl.startsWith("/uploads/")) {
+      const oldFilename = systemSettings.logoUrl.replace("/uploads/", "");
+      const oldFilePath = path.join(UPLOAD_DIR, oldFilename);
+      if (fs.existsSync(oldFilePath)) {
+        try {
+          fs.unlinkSync(oldFilePath);
+          console.log(`Successfully deleted old logo: ${oldFilePath}`);
+        } catch (unlinkErr) {
+          console.error(`Failed to delete old logo file ${oldFilePath}:`, unlinkErr);
+        }
+      }
+    }
+
+    // Save new file
+    const newFilename = `logo_${Date.now()}${ext}`;
+    const newFilePath = path.join(UPLOAD_DIR, newFilename);
+    fs.writeFileSync(newFilePath, buffer);
+
+    const logoUrl = `/uploads/${newFilename}`;
+
+    // Update settings
+    systemSettings = {
+      ...systemSettings,
+      logoPreset: 'custom',
+      logoUrl: logoUrl
+    };
+
+    // Audit Log
+    const newLog = {
+      id: "log_" + Date.now(),
+      actor: "BS. Lê Minh Tâm",
+      action: "Tải lên logo tùy chỉnh",
+      details: `Đã tải lên logo mới: ${newFilename}`,
+      timestamp: new Date().toISOString()
+    };
+    serverAuditLogs.unshift(newLog);
+
+    // Save to Firebase
+    saveDocument("settings", "global", systemSettings);
+    saveDocument("auditLogs", newLog.id, newLog);
+
+    res.json({ success: true, logoUrl, settings: systemSettings });
+  } catch (error: any) {
+    console.error("Error in /api/upload-logo:", error);
+    res.status(500).json({ error: error.message || "Lỗi máy chủ khi tải ảnh lên." });
+  }
+});
+
+app.post("/api/upload-banner", (req, res) => {
+  try {
+    const { filename, base64Data } = req.body;
+    if (!filename || !base64Data) {
+      return res.status(400).json({ error: "Thiếu tên tệp hoặc dữ liệu hình ảnh." });
+    }
+
+    // Decode base64
+    const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      return res.status(400).json({ error: "Định dạng dữ liệu base64 không hợp lệ." });
+    }
+
+    const fileType = matches[1];
+    const buffer = Buffer.from(matches[2], 'base64');
+
+    // Determine extension
+    let ext = ".png";
+    if (fileType.includes("jpeg") || fileType.includes("jpg")) {
+      ext = ".jpg";
+    } else if (fileType.includes("gif")) {
+      ext = ".gif";
+    } else if (fileType.includes("svg")) {
+      ext = ".svg";
+    } else if (fileType.includes("webp")) {
+      ext = ".webp";
+    }
+
+    // Delete old local uploaded file if it exists
+    if (systemSettings.bannerUrl && systemSettings.bannerUrl.startsWith("/uploads/")) {
+      const oldFilename = systemSettings.bannerUrl.replace("/uploads/", "");
+      const oldFilePath = path.join(UPLOAD_DIR, oldFilename);
+      if (fs.existsSync(oldFilePath)) {
+        try {
+          fs.unlinkSync(oldFilePath);
+          console.log(`Successfully deleted old banner: ${oldFilePath}`);
+        } catch (unlinkErr) {
+          console.error(`Failed to delete old banner file ${oldFilePath}:`, unlinkErr);
+        }
+      }
+    }
+
+    // Save new file
+    const newFilename = `banner_${Date.now()}${ext}`;
+    const newFilePath = path.join(UPLOAD_DIR, newFilename);
+    fs.writeFileSync(newFilePath, buffer);
+
+    const bannerUrl = `/uploads/${newFilename}`;
+
+    // Update settings
+    systemSettings = {
+      ...systemSettings,
+      bannerPreset: 'custom',
+      bannerUrl: bannerUrl
+    };
+
+    // Audit Log
+    const newLog = {
+      id: "log_" + Date.now(),
+      actor: "BS. Lê Minh Tâm",
+      action: "Tải lên banner tùy chỉnh",
+      details: `Đã tải lên banner mới: ${newFilename}`,
+      timestamp: new Date().toISOString()
+    };
+    serverAuditLogs.unshift(newLog);
+
+    // Save to Firebase
+    saveDocument("settings", "global", systemSettings);
+    saveDocument("auditLogs", newLog.id, newLog);
+
+    res.json({ success: true, bannerUrl, settings: systemSettings });
+  } catch (error: any) {
+    console.error("Error in /api/upload-banner:", error);
+    res.status(500).json({ error: error.message || "Lỗi máy chủ khi tải ảnh lên." });
+  }
 });
 
 // Procedures API
@@ -727,6 +940,67 @@ app.post("/api/users", (req, res) => {
   }
 
   res.json({ success: true, users: serverUsers });
+});
+
+app.post("/api/users/bulk", (req, res) => {
+  const { users: importedUsers } = req.body;
+  if (!Array.isArray(importedUsers)) {
+    return res.status(400).json({ error: "Dữ liệu hàng loạt không hợp lệ." });
+  }
+
+  let countCreated = 0;
+  let countUpdated = 0;
+  const newLogId = "log_" + Date.now();
+
+  importedUsers.forEach((newUser, uIdx) => {
+    if (!newUser || !newUser.name) return;
+    
+    // We can search by email, id, or name + departmentName to find duplicates
+    let index = -1;
+    if (newUser.email) {
+      index = serverUsers.findIndex((u) => u.email && u.email.trim().toLowerCase() === newUser.email.trim().toLowerCase());
+    }
+    if (index === -1 && newUser.id) {
+      index = serverUsers.findIndex((u) => u.id === newUser.id);
+    }
+    if (index === -1) {
+      index = serverUsers.findIndex((u) => u.name && u.name.trim().toLowerCase() === newUser.name.trim().toLowerCase() && u.departmentName === newUser.departmentName);
+    }
+
+    if (index !== -1) {
+      const prevUser = serverUsers[index];
+      const updatedUser = {
+        ...prevUser,
+        ...newUser,
+      };
+      serverUsers[index] = updatedUser;
+      saveDocument("users", updatedUser.id, updatedUser);
+      countUpdated++;
+    } else {
+      const id = newUser.id || "u_" + (Date.now() + uIdx);
+      const createdUser = {
+        id,
+        shiftCount: 0,
+        status: "Đang làm việc",
+        ...newUser
+      };
+      serverUsers.push(createdUser);
+      saveDocument("users", id, createdUser);
+      countCreated++;
+    }
+  });
+
+  const newLog = {
+    id: newLogId,
+    actor: "BS. Lê Minh Tâm",
+    action: "Nhập excel nhân viên",
+    details: `Nhập hàng loạt nhân viên từ file Excel. Thêm mới: ${countCreated} cán bộ, Cập nhật: ${countUpdated} cán bộ.`,
+    timestamp: new Date().toISOString()
+  };
+  serverAuditLogs.unshift(newLog);
+  saveDocument("auditLogs", newLog.id, newLog);
+
+  res.json({ success: true, users: serverUsers, countCreated, countUpdated });
 });
 
 app.post("/api/users/change-password", (req, res) => {
