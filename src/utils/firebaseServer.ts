@@ -35,7 +35,7 @@ export function getFirestoreDb() {
     }
   }
 
-  // If projectId is "remixed-project-id" or not set, check GOOGLE_CLOUD_PROJECT
+  // If projectId is "remixed-project-id" or not set, check GOOGLE_CLOUD_PROJECT as fallback
   if (!projectId || projectId === "remixed-project-id") {
     if (process.env.GOOGLE_CLOUD_PROJECT) {
       console.log(`Overriding fallback/placeholder project ID with GOOGLE_CLOUD_PROJECT: ${process.env.GOOGLE_CLOUD_PROJECT}`);

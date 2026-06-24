@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { DailyReport, ReportItem, User, CategoryKey } from '../types';
 import { CATEGORIES, USERS } from '../data';
-import { Save, CheckCircle, FilePenLine, Lock, ShieldAlert, Calendar, Eye, Database, Printer, FileDown, UploadCloud, DownloadCloud, RefreshCw, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Save, CheckCircle, FilePenLine, Lock, ShieldAlert, Calendar, Eye, Database, Printer, FileDown, UploadCloud, DownloadCloud, RefreshCw, Settings, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { formatDateToDDMMYYYY, shiftDateString } from '../utils/date';
 import * as XLSX from 'xlsx';
 
@@ -16,6 +16,7 @@ interface ClinicalReportTableProps {
   onBulkSaveReports?: (imported: DailyReport[]) => Promise<void>;
   procedures: Omit<ReportItem, 'bh' | 'nd'>[];
   onRefreshData?: () => Promise<void>;
+  onDeleteReport?: (date: string) => Promise<void>;
 }
 
 export default function ClinicalReportTable({
@@ -27,7 +28,8 @@ export default function ClinicalReportTable({
   onApproveReport,
   onBulkSaveReports,
   procedures,
-  onRefreshData
+  onRefreshData,
+  onDeleteReport
 }: ClinicalReportTableProps) {
   // Find or initialize report for the active date
   const [currentReport, setCurrentReport] = useState<DailyReport | null>(null);
@@ -50,6 +52,8 @@ export default function ClinicalReportTable({
   const [syncOverwrite, setSyncOverwrite] = useState<boolean>(true);
   const [syncSelectedDate, setSyncSelectedDate] = useState<string>(activeDate);
   const [isGoogleSyncModalOpen, setIsGoogleSyncModalOpen] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isDeletingReport, setIsDeletingReport] = useState(false);
 
   useEffect(() => {
     setSyncSelectedDate(activeDate);
@@ -1344,6 +1348,18 @@ export default function ClinicalReportTable({
                   <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping shrink-0" />
                 )}
               </button>
+
+              <button
+                type="button"
+                onClick={() => setIsDeleteConfirmOpen(true)}
+                disabled={!reports.some(r => r.date === activeDate)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-extrabold text-xs transition duration-150 shadow-xs cursor-pointer select-none"
+                id="btn-delete-report"
+                title="Xóa dữ liệu báo cáo của ngày này"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Xóa dữ liệu 🗑️
+              </button>
             </>
           )}
         </div>
@@ -1959,13 +1975,16 @@ export default function ClinicalReportTable({
                     const rowCombined = (Number(item.bh) || 0) + (Number(item.nd) || 0);
 
                     return (
-                      <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/30 transition duration-150 border-b border-slate-100/60 dark:border-slate-800/60">
-                        <td className="px-6 py-4.5 font-bold text-slate-900 dark:text-slate-100 pr-4 leading-relaxed text-[13.5px] sm:text-[14px]">
+                      <tr 
+                        key={item.id} 
+                        className="group hover:bg-indigo-50/25 dark:hover:bg-indigo-950/20 transition-all duration-200 border-b border-slate-200 dark:border-slate-800/85 even:bg-slate-50/15 dark:even:bg-slate-900/5"
+                      >
+                        <td className="px-6 py-4 font-bold text-slate-900 dark:text-slate-100 pr-4 leading-relaxed text-[13.5px] sm:text-[14px] border-l-4 border-l-transparent transition-all duration-200 group-hover:pl-8 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 group-hover:border-l-indigo-600 dark:group-hover:border-l-indigo-500">
                           {item.name}
                         </td>
                         
                         {/* BH Input */}
-                        <td className="px-4 py-3 text-center">
+                        <td className="px-4 py-3 text-center transition-all duration-200 group-hover:bg-indigo-50/10 dark:group-hover:bg-indigo-950/10">
                           {isEditing && hasCatPermission ? (
                             <input
                               type="number"
@@ -1983,7 +2002,7 @@ export default function ClinicalReportTable({
                         </td>
 
                         {/* ND Input */}
-                        <td className="px-4 py-3 text-center">
+                        <td className="px-4 py-3 text-center transition-all duration-200 group-hover:bg-indigo-50/10 dark:group-hover:bg-indigo-950/10">
                           {isEditing && hasCatPermission ? (
                             <input
                               type="number"
@@ -2001,7 +2020,7 @@ export default function ClinicalReportTable({
                         </td>
 
                         {/* Combined Row Sum */}
-                        <td className="px-4 py-3 text-center font-black font-mono text-slate-950 dark:text-slate-50 bg-slate-150/15 dark:bg-slate-900/10 text-sm">
+                        <td className="px-4 py-3 text-center font-black font-mono text-slate-950 dark:text-slate-50 bg-slate-150/15 dark:bg-slate-900/10 text-sm transition-all duration-200 group-hover:bg-indigo-100/20 dark:group-hover:bg-indigo-900/15">
                           {rowCombined || <span className="text-slate-300 dark:text-slate-700 font-normal">-</span>}
                         </td>
                       </tr>
@@ -2009,17 +2028,20 @@ export default function ClinicalReportTable({
                   })}
 
                   {/* Category Totals summary Row - High Density */}
-                  <tr className="bg-slate-100/40 dark:bg-slate-900/20 font-bold border-b border-slate-250 dark:border-slate-800 text-slate-800 dark:text-slate-200">
-                    <td className="px-6 py-3.5 text-right uppercase tracking-wider text-slate-600 dark:text-slate-400 font-black text-[11px]">
-                      TỔNG ({category.name})
+                  <tr className="group bg-indigo-50/45 dark:bg-indigo-950/30 font-bold border-y-2 border-indigo-150/80 dark:border-indigo-900/70 text-indigo-950 dark:text-indigo-250 hover:bg-indigo-100/60 dark:hover:bg-indigo-900/50 hover:shadow-xs transition-all duration-300">
+                    <td className="px-6 py-4.5 text-right uppercase tracking-wider text-indigo-900 dark:text-indigo-350 font-extrabold text-[12px] border-l-4 border-l-indigo-400/80 dark:border-l-indigo-800 transition-all duration-300 group-hover:pl-8 group-hover:border-l-indigo-600 dark:group-hover:border-l-indigo-500">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                        TỔNG ({category.name})
+                      </span>
                     </td>
-                    <td className="px-4 py-3.5 text-center font-mono font-black text-indigo-700 dark:text-indigo-400 bg-indigo-50/20 dark:bg-indigo-950/20 text-sm">
+                    <td className="px-4 py-3.5 text-center font-mono font-black text-indigo-700 dark:text-indigo-400 bg-indigo-50/40 dark:bg-indigo-950/40 text-sm transition-all duration-300 group-hover:bg-indigo-100/60 dark:group-hover:bg-indigo-900/60">
                       {catTotals.bh || '-'}
                     </td>
-                    <td className="px-4 py-3.5 text-center font-mono font-black text-emerald-705 dark:text-emerald-400 bg-emerald-50/20 dark:bg-emerald-950/20 text-sm">
+                    <td className="px-4 py-3.5 text-center font-mono font-black text-emerald-705 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/40 text-sm transition-all duration-300 group-hover:bg-emerald-100/50 dark:group-hover:bg-emerald-900/50">
                       {catTotals.nd || '-'}
                     </td>
-                    <td className="px-4 py-3.5 text-center font-mono font-black text-slate-950 dark:text-white bg-slate-100/60 dark:bg-slate-900/40 text-sm">
+                    <td className="px-4 py-3.5 text-center font-mono font-black text-slate-950 dark:text-white bg-slate-100/60 dark:bg-slate-900/40 text-sm transition-all duration-300 group-hover:bg-indigo-200/50 dark:group-hover:bg-indigo-900/70">
                       {catTotals.total || '-'}
                     </td>
                   </tr>
@@ -2028,18 +2050,20 @@ export default function ClinicalReportTable({
             })}
 
             {/* GRAND TOTAL ROW */}
-            <tr className="bg-slate-900 dark:bg-indigo-950 text-white font-bold border-t-2 border-indigo-500 h-16 transition-all hover:bg-slate-950">
-              <td className="px-6 py-4 uppercase tracking-wider text-left text-white flex items-center gap-2.5 font-black text-[11.5px]">
-                <Database className="w-5 h-5 text-indigo-400 animate-pulse" />
-                TỔNG CỘNG TOÀN KHOA CẬN LÂM SÀNG
+            <tr className="group bg-slate-900 dark:bg-indigo-950 text-white font-bold border-t-4 border-indigo-500 h-16 transition-all duration-300 hover:bg-slate-950 dark:hover:bg-slate-900 hover:shadow-lg">
+              <td className="px-6 py-4 uppercase tracking-widest text-left text-white font-black text-[12px] border-l-4 border-l-indigo-500 transition-all duration-300 group-hover:pl-8 group-hover:border-l-sky-450">
+                <div className="flex items-center gap-3">
+                  <Database className="w-5 h-5 text-indigo-400 group-hover:text-sky-400 group-hover:scale-110 transition-all duration-300 animate-pulse" />
+                  TỔNG CỘNG TOÀN KHOA CẬN LÂM SÀNG
+                </div>
               </td>
-              <td className="px-4 py-3 text-center font-mono font-black text-sky-305 text-sm">
+              <td className="px-4 py-3 text-center font-mono font-black text-sky-300 text-sm transition-all duration-300 group-hover:text-sky-200 group-hover:bg-slate-900/80">
                 {grandTotals.bh || '0'}
               </td>
-              <td className="px-4 py-3 text-center font-mono font-black text-emerald-400 text-sm">
+              <td className="px-4 py-3 text-center font-mono font-black text-emerald-400 text-sm transition-all duration-300 group-hover:text-emerald-300 group-hover:bg-slate-900/80">
                 {grandTotals.nd || '0'}
               </td>
-              <td className="px-4 py-3 text-center font-mono font-black bg-slate-950 text-white text-sm">
+              <td className="px-4 py-3 text-center font-mono font-black bg-slate-950 dark:bg-slate-900 text-white text-sm transition-all duration-300 group-hover:bg-indigo-900">
                 {grandTotals.total || '0'}
               </td>
             </tr>
@@ -2505,6 +2529,55 @@ export default function ClinicalReportTable({
                 className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold transition hover:bg-emerald-700 cursor-pointer hover:scale-[1.02] active:scale-95"
               >
                 Đồng ý
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {isDeleteConfirmOpen && createPortal(
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[20000] animate-fade-in text-slate-800 dark:text-slate-100">
+          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-sm w-full p-5 shadow-xl border border-rose-200 dark:border-rose-950/40 space-y-4 animate-scale-up text-slate-800 dark:text-slate-200">
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 shrink-0">
+                <Trash2 className="w-5 h-5 animate-pulse" />
+              </span>
+              <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">Xác nhận xóa số liệu báo cáo</h4>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-semibold">
+              Bạn có chắc chắn muốn xóa toàn bộ số liệu báo cáo chuyên môn của ngày <strong className="text-rose-600 dark:text-rose-450">{formatDateToDDMMYYYY(activeDate)}</strong>?
+              <br /><br />
+              <span className="text-rose-500 dark:text-rose-400 font-bold">⚠️ Lưu ý:</span> Thống kê hoạt động của ngày này sẽ bị xóa khỏi hệ thống Clinis và không thể khôi phục lại.
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsDeleteConfirmOpen(false)}
+                disabled={isDeletingReport}
+                className="px-3.5 py-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-605 dark:text-slate-300 bg-white dark:bg-slate-900 text-xs font-bold transition hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingReport}
+                onClick={async () => {
+                  if (onDeleteReport) {
+                    setIsDeletingReport(true);
+                    try {
+                      await onDeleteReport(activeDate);
+                      setIsDeleteConfirmOpen(false);
+                    } catch (err) {
+                      console.error(err);
+                    } finally {
+                      setIsDeletingReport(false);
+                    }
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition hover:bg-rose-700 cursor-pointer hover:scale-[1.02] active:scale-95 flex items-center justify-center"
+              >
+                {isDeletingReport ? 'Đang xóa...' : 'Xác nhận xóa'}
               </button>
             </div>
           </div>

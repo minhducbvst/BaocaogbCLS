@@ -291,6 +291,28 @@ export default function App() {
     }
   };
 
+  // Handle Delete Report
+  const handleDeleteReport = async (date: string) => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch(`/api/reports/${date}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        await fetchAllData();
+      } else {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Không thể xóa báo cáo số liệu.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorBanner(err.message || 'Sự cố xóa dữ liệu.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // Handle Approve Report
   const handleApproveReport = async (date: string) => {
     setIsSyncing(true);
@@ -885,6 +907,7 @@ export default function App() {
               onBulkSaveReports={handleBulkSaveReports}
               procedures={procedures}
               onRefreshData={fetchAllData}
+              onDeleteReport={handleDeleteReport}
             />
           )}
 

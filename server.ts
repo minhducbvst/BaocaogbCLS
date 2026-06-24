@@ -995,6 +995,32 @@ app.post("/api/reports", (req, res) => {
   res.json({ success: true, report: savedRep });
 });
 
+app.delete("/api/reports/:date", (req, res) => {
+  const { date } = req.params;
+  const index = reports.findIndex((r) => r.date === date);
+  if (index !== -1) {
+    const deletedReport = reports[index];
+    reports.splice(index, 1);
+    deleteDocument("reports", date);
+    
+    // Add audit log
+    const newLogId = "log_" + Date.now();
+    const newLog = {
+      id: newLogId,
+      actor: "BS. Lê Minh Tâm", // Admin
+      action: "Xóa báo cáo",
+      details: `Xóa toàn bộ báo cáo số liệu chuyên môn ngày ${date}`,
+      timestamp: new Date().toISOString()
+    };
+    serverAuditLogs.unshift(newLog);
+    saveDocument("auditLogs", newLog.id, newLog);
+
+    res.json({ success: true, message: `Báo cáo ngày ${date} đã được xóa thành công.` });
+  } else {
+    res.status(404).json({ error: "Không tìm thấy dữ liệu báo cáo cho ngày này." });
+  }
+});
+
 app.post("/api/reports/bulk", (req, res) => {
   const { reports: importedReports, approvedBy } = req.body;
   if (!Array.isArray(importedReports)) {
@@ -2596,13 +2622,20 @@ app.post("/api/sheets/pull", async (req, res) => {
         });
       });
 
-      if (!hasData) {
-        // If the sheet has no data for this day, skip it
-        continue; 
-      }
-
       // Check if report already exists in database
       const existingIdx = reports.findIndex(r => r.date === targetDateStr);
+
+      if (!hasData) {
+        // If the sheet has no data for this day, but overwrite is true and the report already exists,
+        // we should proceed to overwrite the existing report with 0/empty values.
+        // Otherwise, skip it (no need to create a new empty report)
+        if (overwrite === true && existingIdx !== -1) {
+          // Proceed to update the existing report to all 0s
+        } else {
+          continue; 
+        }
+      }
+
       if (existingIdx !== -1) {
         // Respect overwrite choice if false
         if (overwrite === false) {
