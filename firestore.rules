@@ -66,7 +66,7 @@ service cloud.firestore {
         data.content is string &&
         data.timestamp is string &&
         data.type is string &&
-        (data.type == 'meeting' || data.type == 'report' || data.type == 'system' || data.type == 'alert' || data.type == 'task' || data.type == 'update') &&
+        (data.type == 'meeting' || data.type == 'report' || data.type == 'system' || data.type == 'alert' || data.type == 'task' || data.type == 'update' || data.type == 'success' || data.type == 'error') &&
         data.read is bool;
     }
 

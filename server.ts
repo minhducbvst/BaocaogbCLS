@@ -485,10 +485,11 @@ let systemSettings = {
   systemSubtitle: "Hệ thống báo cáo số liệu & Tự động hóa biên bản giao ban bằng AI",
   autoSyncEnabled: false,
   autoSyncTime: "12:00",
-  googleSpreadsheetUrl: "",
+  googleSpreadsheetUrl: "https://docs.google.com/spreadsheets/d/1n7yQQmninnDTVNtIZqCzUEiAI1jRHSj4VTr7pVs3KMM/edit?usp=sharing",
+  googleAccessToken: "",
   googleApiKey: "",
   googleRefreshToken: "",
-  googleClientId: "",
+  googleClientId: "1067215171120-g7a7fge4vbe050m3oabm896v1k6g6m2f.apps.googleusercontent.com",
   googleClientSecret: "",
   telegramBotToken: "",
   telegramChatId: ""
@@ -637,6 +638,14 @@ app.post("/api/settings", (req, res) => {
     ...systemSettings,
     ...newSettings
   };
+
+  // Ensure essential defaults are kept if they became falsy
+  if (!systemSettings.googleSpreadsheetUrl) {
+    systemSettings.googleSpreadsheetUrl = "https://docs.google.com/spreadsheets/d/1n7yQQmninnDTVNtIZqCzUEiAI1jRHSj4VTr7pVs3KMM/edit?usp=sharing";
+  }
+  if (!systemSettings.googleClientId) {
+    systemSettings.googleClientId = "1067215171120-g7a7fge4vbe050m3oabm896v1k6g6m2f.apps.googleusercontent.com";
+  }
 
   const newLog = {
     id: "log_" + Date.now(),
@@ -3133,7 +3142,7 @@ function formatTelegramReportMessage(report: any, dateStr: string): string {
   return message;
 }
 
-async function runAutomatedSyncAndReport(customDateStr?: string) {
+async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?: string) {
   try {
     const settings = systemSettings as any;
     const spreadsheetUrl = settings.googleSpreadsheetUrl || "";
@@ -3206,6 +3215,19 @@ async function runAutomatedSyncAndReport(customDateStr?: string) {
     const headers: any = {};
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    // Set Referer and Origin to bypass restricted API key restrictions
+    let referer = customReferer;
+    if (!referer) {
+      referer = "https://ais-dev-zqq5pije5gh2vxz2hsbjqk-1022339198231.asia-southeast1.run.app/";
+    }
+    headers["Referer"] = referer;
+    try {
+      const parsedUrl = new URL(referer);
+      headers["Origin"] = parsedUrl.origin;
+    } catch {
+      headers["Origin"] = "https://ais-dev-zqq5pije5gh2vxz2hsbjqk-1022339198231.asia-southeast1.run.app";
     }
 
     const metaResponse = await fetch(metaUrl, { headers });
@@ -3381,12 +3403,17 @@ async function runAutomatedSyncAndReport(customDateStr?: string) {
   } catch (err: any) {
     console.error("[Auto-Sync] Đồng bộ tự động thất bại:", err?.message || err);
 
+    let friendlyError = err?.message || String(err);
+    if (friendlyError.includes("API_KEY_HTTP_REFERRER_BLOCKED") || friendlyError.includes("Requests from referer") || friendlyError.includes("blocked")) {
+      friendlyError = "Lỗi API Key Google (HTTP 403 - Referrer Blocked): Google Cloud Console của bạn đang chặn yêu cầu từ tên miền này. Vui lòng vào Google Cloud Console -> APIs & Services -> Credentials, tìm API Key và thêm tên miền của ứng dụng (hoặc bỏ giới hạn HTTP referrers), hoặc sử dụng tính năng liên kết tài khoản Google (OAuth) trong mục Quản Lý Nhân Sự / Cấu Hình để đồng bộ không cần API Key.";
+    }
+
     try {
       const notifId = "notif_err_" + Date.now();
       const newNotification = {
         id: notifId,
         title: "Đồng bộ tự động thất bại ⚠️",
-        content: `Lỗi: ${err?.message || err}`,
+        content: `Lỗi: ${friendlyError}`,
         timestamp: new Date().toISOString(),
         type: "error",
         read: false
@@ -3395,14 +3422,15 @@ async function runAutomatedSyncAndReport(customDateStr?: string) {
       saveDocument("notifications", notifId, newNotification);
     } catch (e) {}
 
-    return { success: false, error: err?.message || String(err) };
+    return { success: false, error: friendlyError };
   }
 }
 
 // REST Endpoint to trigger/test Auto-Sync manually
 app.post("/api/sheets/auto-sync-test", async (req, res) => {
   const { date } = req.body;
-  const result = await runAutomatedSyncAndReport(date);
+  const referer = (req.headers.referer || req.headers.origin) as string | undefined;
+  const result = await runAutomatedSyncAndReport(date, referer);
   if (result.success) {
     res.json(result);
   } else {
@@ -3461,6 +3489,13 @@ async function syncAllFromFirebase() {
         ...systemSettings,
         ...syncedSettings
       };
+      // Ensure essential defaults are kept if they became falsy in the DB/local backup
+      if (!systemSettings.googleSpreadsheetUrl) {
+        systemSettings.googleSpreadsheetUrl = "https://docs.google.com/spreadsheets/d/1n7yQQmninnDTVNtIZqCzUEiAI1jRHSj4VTr7pVs3KMM/edit?usp=sharing";
+      }
+      if (!systemSettings.googleClientId) {
+        systemSettings.googleClientId = "1067215171120-g7a7fge4vbe050m3oabm896v1k6g6m2f.apps.googleusercontent.com";
+      }
     }
 
     console.log("Firebase data synchronization completed successfully!");

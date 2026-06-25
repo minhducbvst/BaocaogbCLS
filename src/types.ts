@@ -99,6 +99,7 @@ export interface SystemSettings {
   autoSyncEnabled?: boolean;
   autoSyncTime?: string;
   googleSpreadsheetUrl?: string;
+  googleAccessToken?: string;
   googleApiKey?: string;
   googleRefreshToken?: string;
   googleClientId?: string;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { User, PrintSettings } from '../types';
 import { CATEGORIES, DEFAULT_PRINT_SETTINGS } from '../data';
@@ -420,6 +420,23 @@ export default function PersonnelManager({
   };
 
   useEffect(() => {
+    if (systemSettings) {
+      if (systemSettings.googleSpreadsheetUrl !== undefined && systemSettings.googleSpreadsheetUrl !== googleSpreadsheetUrl) {
+        setGoogleSpreadsheetUrl(systemSettings.googleSpreadsheetUrl);
+        localStorage.setItem('google_spreadsheet_url', systemSettings.googleSpreadsheetUrl);
+      }
+      if (systemSettings.googleAccessToken !== undefined && systemSettings.googleAccessToken !== googleAccessToken) {
+        setGoogleAccessToken(systemSettings.googleAccessToken);
+        localStorage.setItem('google_access_token', systemSettings.googleAccessToken);
+      }
+      if (systemSettings.googleClientId !== undefined && systemSettings.googleClientId !== googleClientId) {
+        setGoogleClientId(systemSettings.googleClientId);
+        localStorage.setItem('google_client_id', systemSettings.googleClientId);
+      }
+    }
+  }, [systemSettings]);
+
+  useEffect(() => {
     // Parse Google OAuth access token from window.location.hash
     if (window.location.hash) {
       const hash = window.location.hash.substring(1);
@@ -428,13 +445,14 @@ export default function PersonnelManager({
       if (token) {
         setGoogleAccessToken(token);
         localStorage.setItem('google_access_token', token);
+        onUpdateSettings?.({ googleAccessToken: token });
         // Clear hash from address bar
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
         setSuccessText('Kết nối tài khoản Google thành công! Cấu hình đã được lưu trữ.');
         setTimeout(() => setSuccessText(null), 4000);
       }
     }
-  }, []);
+  }, [onUpdateSettings]);
 
   const handleGoogleConnect = () => {
     if (!googleClientId.trim()) {
@@ -2894,8 +2912,10 @@ export default function PersonnelManager({
                   type="text"
                   value={googleSpreadsheetUrl}
                   onChange={(e) => {
-                    setGoogleSpreadsheetUrl(e.target.value);
-                    localStorage.setItem('google_spreadsheet_url', e.target.value);
+                    const val = e.target.value;
+                    setGoogleSpreadsheetUrl(val);
+                    localStorage.setItem('google_spreadsheet_url', val);
+                    onUpdateSettings?.({ googleSpreadsheetUrl: val });
                   }}
                   placeholder="https://docs.google.com/spreadsheets/d/Spreadsheet-ID/edit"
                   className="w-full pl-8 pr-3 py-2 text-xs border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-indigo-505 focus:border-indigo-500 font-semibold font-sans shadow-3xs"
@@ -2953,8 +2973,10 @@ export default function PersonnelManager({
                     rows={2}
                     value={googleAccessToken}
                     onChange={(e) => {
-                      setGoogleAccessToken(e.target.value);
-                      localStorage.setItem('google_access_token', e.target.value);
+                      const val = e.target.value;
+                      setGoogleAccessToken(val);
+                      localStorage.setItem('google_access_token', val);
+                      onUpdateSettings?.({ googleAccessToken: val });
                     }}
                     placeholder="Dán mã Access Token lấy từ OAuth Playground bắt đầu bằng ya29... tại đây"
                     className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-930 text-slate-800 dark:text-slate-200 placeholder-slate-400 p-2.5 focus:outline-hidden focus:ring-1 focus:ring-indigo-505 focus:border-indigo-500 leading-relaxed shadow-xs"
@@ -2977,8 +2999,10 @@ export default function PersonnelManager({
                       type="text"
                       value={googleClientId}
                       onChange={(e) => {
-                        setGoogleClientId(e.target.value);
-                        localStorage.setItem('google_client_id', e.target.value);
+                        const val = e.target.value;
+                        setGoogleClientId(val);
+                        localStorage.setItem('google_client_id', val);
+                        onUpdateSettings?.({ googleClientId: val });
                       }}
                       placeholder="Nhập mã Client ID (dòng dài kết thúc bằng .apps.googleusercontent.com)"
                       className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-930 text-slate-800 dark:text-slate-200 placeholder-slate-400 px-3 py-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-505 shadow-xs"

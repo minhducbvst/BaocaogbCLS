@@ -81,10 +81,11 @@ export default function App() {
     systemSubtitle: "Hệ thống báo cáo số liệu & Tự động hóa biên bản giao ban bằng AI",
     autoSyncEnabled: false,
     autoSyncTime: "12:00",
-    googleSpreadsheetUrl: "",
+    googleSpreadsheetUrl: "https://docs.google.com/spreadsheets/d/1n7yQQmninnDTVNtIZqCzUEiAI1jRHSj4VTr7pVs3KMM/edit?usp=sharing",
+    googleAccessToken: "",
     googleApiKey: "",
     googleRefreshToken: "",
-    googleClientId: "",
+    googleClientId: "1067215171120-g7a7fge4vbe050m3oabm896v1k6g6m2f.apps.googleusercontent.com",
     googleClientSecret: "",
     telegramBotToken: "",
     telegramChatId: ""
