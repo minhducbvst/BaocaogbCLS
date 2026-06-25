@@ -3438,6 +3438,18 @@ app.post("/api/sheets/auto-sync-test", async (req, res) => {
   }
 });
 
+// GET Endpoint to trigger Auto-Sync via external cron services (like cron-job.org)
+app.get("/api/sheets/auto-sync-cron", async (req, res) => {
+  const { date } = req.query;
+  const referer = (req.headers.referer || req.headers.origin) as string | undefined;
+  const result = await runAutomatedSyncAndReport(date as string | undefined, referer);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(500).json(result);
+  }
+});
+
 // Periodic check for 12:00 Vietnam time daily
 setInterval(async () => {
   try {

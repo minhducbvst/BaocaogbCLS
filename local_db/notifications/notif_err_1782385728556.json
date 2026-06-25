@@ -1,0 +1,8 @@
+{
+  "id": "notif_err_1782385728556",
+  "title": "Đồng bộ tự động thất bại ⚠️",
+  "content": "Lỗi: Google Sheets Metadata API Error (HTTP 403): {\n  \"error\": {\n    \"code\": 403,\n    \"message\": \"Method doesn't allow unregistered callers (callers without established identity). Please use API Key or other form of API consumer identity to call this API.\",\n    \"status\": \"PERMISSION_DENIED\"\n  }\n}\n",
+  "timestamp": "2026-06-25T11:08:48.556Z",
+  "type": "error",
+  "read": false
+}
