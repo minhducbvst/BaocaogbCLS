@@ -3142,7 +3142,7 @@ function formatTelegramReportMessage(report: any, dateStr: string): string {
   return message;
 }
 
-async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?: string) {
+async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?: string, forceOverwrite: boolean = false) {
   try {
     const settings = systemSettings as any;
     const spreadsheetUrl = settings.googleSpreadsheetUrl || "";
@@ -3205,6 +3205,10 @@ async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?:
 
     if (!token && settings.googleAccessToken) {
       token = settings.googleAccessToken;
+    }
+
+    if (!token && !apiKey) {
+      throw new Error("Chưa cấu hình thông tin xác thực Google. Vui lòng thiết lập 'Google API Key' (cho bảng tính Công khai) hoặc điền đầy đủ 'Google Client ID / Client Secret / Refresh Token' (cho bảng tính Riêng tư) trong mục Quản trị hệ thống -> Đồng bộ Google Sheets.");
     }
 
     let metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`;
@@ -3339,6 +3343,37 @@ async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?:
     let finalReport: any;
 
     if (existingIdx !== -1) {
+      if (!forceOverwrite) {
+        console.log(`[Auto-Sync] Báo cáo ngày ${targetDateStr} đã tồn tại trong hệ thống. Bỏ qua không ghi đè theo mặc định cấu hình an toàn.`);
+        
+        // Add Audit Log
+        const logId = "log_auto_skip_" + Date.now();
+        const newLog = {
+          id: logId,
+          actor: "Hệ thống tự động",
+          action: "Đồng bộ tự động",
+          details: `Đồng bộ tự động ngày ${targetDateStr} được bỏ qua vì báo cáo đã tồn tại trong hệ thống (Mặc định bảo toàn dữ liệu).`,
+          timestamp: new Date().toISOString()
+        };
+        serverAuditLogs.unshift(newLog);
+        saveDocument("auditLogs", logId, newLog);
+
+        // Add Notification
+        const notifId = "notif_auto_skip_" + Date.now();
+        const newNotification = {
+          id: notifId,
+          title: "Đồng bộ tự động bỏ qua 🕒",
+          content: `Dữ liệu ngày ${targetDateStr} đã tồn tại trong hệ thống. Hệ thống đã tự động bỏ qua để tránh ghi đè dữ liệu cũ.`,
+          timestamp: new Date().toISOString(),
+          type: "warning",
+          read: false
+        };
+        notifications.push(newNotification);
+        saveDocument("notifications", notifId, newNotification);
+
+        return { success: true, date: targetDateStr, skipped: true, reason: "Báo cáo đã tồn tại, mặc định chế độ an toàn không ghi đè." };
+      }
+
       reports[existingIdx] = {
         ...reports[existingIdx],
         items: parsedItems,
@@ -3428,26 +3463,22 @@ async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?:
 
 // REST Endpoint to trigger/test Auto-Sync manually
 app.post("/api/sheets/auto-sync-test", async (req, res) => {
-  const { date } = req.body;
+  const { date, overwrite } = req.body;
+  const forceOverwrite = overwrite === true || overwrite === "true";
   const referer = (req.headers.referer || req.headers.origin) as string | undefined;
-  const result = await runAutomatedSyncAndReport(date, referer);
-  if (result.success) {
-    res.json(result);
-  } else {
-    res.status(500).json(result);
-  }
+  const result = await runAutomatedSyncAndReport(date, referer, forceOverwrite);
+  // Always return 200 OK so client-side display can handle it gracefully as a valid response
+  res.status(200).json(result);
 });
 
 // GET Endpoint to trigger Auto-Sync via external cron services (like cron-job.org)
 app.get("/api/sheets/auto-sync-cron", async (req, res) => {
-  const { date } = req.query;
+  const { date, overwrite } = req.query;
+  const forceOverwrite = String(overwrite) === "true";
   const referer = (req.headers.referer || req.headers.origin) as string | undefined;
-  const result = await runAutomatedSyncAndReport(date as string | undefined, referer);
-  if (result.success) {
-    res.json(result);
-  } else {
-    res.status(500).json(result);
-  }
+  const result = await runAutomatedSyncAndReport(date as string | undefined, referer, forceOverwrite);
+  // Always return 200 OK so that external cron-job.org scheduler doesn't disable the cron job due to temporary API failures or configuration issues
+  res.status(200).json(result);
 });
 
 // Periodic check for 12:00 Vietnam time daily

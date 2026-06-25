@@ -1,5 +1,14 @@
-import { initializeApp, getApps, getApp, cert } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { 
+  getFirestore, 
+  collection, 
+  doc, 
+  getDoc, 
+  getDocs, 
+  setDoc, 
+  deleteDoc, 
+  writeBatch 
+} from "firebase/firestore";
 import fs from "fs";
 import path from "path";
 
@@ -20,72 +29,26 @@ export function getFirebaseConfig() {
 export function getFirestoreDb() {
   if (dbInstance) return dbInstance;
 
-  // Prioritize environment variables for production environments (Vercel/Render/Railway)
-  let projectId = process.env.FIREBASE_PROJECT_ID;
-  let dbId = process.env.FIREBASE_DATABASE_ID;
-
-  // Fallback to local config file if env vars are not set (local dev in AI Studio)
   const config = getFirebaseConfig();
-  if (config) {
-    if (!projectId && config.projectId) {
-      projectId = config.projectId;
-    }
-    if (!dbId && config.firestoreDatabaseId) {
-      dbId = config.firestoreDatabaseId;
-    }
-  }
-
-  // If GOOGLE_CLOUD_PROJECT is set, we MUST prioritize it over any config file value to prevent PERMISSION_DENIED
-  // because the container's service account only has access to its own hosting project.
-  if (process.env.GOOGLE_CLOUD_PROJECT) {
-    console.log(`Using GOOGLE_CLOUD_PROJECT for Firestore initialization: ${process.env.GOOGLE_CLOUD_PROJECT}`);
-    projectId = process.env.GOOGLE_CLOUD_PROJECT;
-  } else if (!projectId || projectId === "remixed-project-id") {
-    console.warn("No GOOGLE_CLOUD_PROJECT found, using fallback or config projectId.");
-  }
-
-  // Final fallback to default for dbId
-  if (!dbId) {
-    dbId = "(default)";
-  }
-
-  if (!projectId) {
-    console.warn("Firebase config is missing or incomplete (No FIREBASE_PROJECT_ID found in env or local file). Using in-memory fallback.");
+  if (!config) {
+    console.warn("Firebase config is missing or incomplete (No firebase-applet-config.json found). Using in-memory fallback.");
     return null;
   }
 
   try {
     let app;
     if (getApps().length === 0) {
-      const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
-      if (serviceAccountVar) {
-        try {
-          const serviceAccount = JSON.parse(serviceAccountVar);
-          app = initializeApp({
-            credential: cert(serviceAccount),
-            projectId: projectId
-          });
-          console.log("Firebase App initialized using FIREBASE_SERVICE_ACCOUNT credential.");
-        } catch (jsonErr) {
-          console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT JSON. Falling back to default initialization:", jsonErr);
-          app = initializeApp({
-            projectId: projectId,
-          });
-        }
-      } else {
-        app = initializeApp({
-          projectId: projectId,
-        });
-      }
+      app = initializeApp(config);
+      console.log("Firebase App initialized successfully using Client SDK config.");
     } else {
       app = getApp();
     }
     
-    dbInstance = getFirestore(app, dbId);
-    console.log(`Firebase Firestore initialized successfully via firebase-admin with Project ID: ${projectId}, DB ID: ${dbId}`);
+    dbInstance = getFirestore(app, config.firestoreDatabaseId);
+    console.log(`Firebase Firestore initialized successfully via Client SDK with Project ID: ${config.projectId}, DB ID: ${config.firestoreDatabaseId}`);
     return dbInstance;
   } catch (err) {
-    console.error("Failed to initialize Firebase Firestore Admin SDK:", err);
+    console.error("Failed to initialize Firebase Firestore Client SDK:", err);
     return null;
   }
 }
@@ -164,15 +127,15 @@ export async function syncCollection<T>(collectionName: string, memoryArray: T[]
 
   if (db) {
     try {
-      const colRef = db.collection(collectionName);
-      const snapshot = await colRef.get();
+      const colRef = collection(db, collectionName);
+      const snapshot = await getDocs(colRef);
       if (snapshot.empty) {
         console.log(`Firestore collection "${collectionName}" is empty. Seeding with ${memoryArray.length} items...`);
         // Use batches for seeding efficiently
-        const batch = db.batch();
+        const batch = writeBatch(db);
         for (const item of memoryArray) {
           const id = getItemUniqueId(item);
-          const docRef = colRef.doc(id);
+          const docRef = doc(db, collectionName, id);
           batch.set(docRef, item as any);
           // Backup locally
           saveLocalDocument(collectionName, id, item);
@@ -221,11 +184,11 @@ export async function syncSettings(collectionName: string, docId: string, defaul
 
   if (db) {
     try {
-      const docRef = db.collection(collectionName).doc(docId);
-      const snapshot = await docRef.get();
-      if (!snapshot.exists) {
+      const docRef = doc(db, collectionName, docId);
+      const snapshot = await getDoc(docRef);
+      if (!snapshot.exists()) {
         console.log(`Settings document "${collectionName}/${docId}" was not found. Initializing...`);
-        await docRef.set(defaultSettings);
+        await setDoc(docRef, defaultSettings);
         saveLocalDocument(collectionName, docId, defaultSettings);
         return defaultSettings;
       } else {
@@ -262,8 +225,8 @@ export async function saveDocument(collectionName: string, docId: string, data: 
   if (!db) return;
 
   try {
-    const docRef = db.collection(collectionName).doc(docId);
-    await docRef.set(data);
+    const docRef = doc(db, collectionName, docId);
+    await setDoc(docRef, data);
     console.log(`Saved document "${collectionName}/${docId}" to Firebase successfully.`);
   } catch (err: any) {
     console.warn(`Failed to save document "${collectionName}/${docId}" to Firebase, using local storage backup:`, err.message || err);
@@ -279,8 +242,8 @@ export async function deleteDocument(collectionName: string, docId: string): Pro
   if (!db) return;
 
   try {
-    const docRef = db.collection(collectionName).doc(docId);
-    await docRef.delete();
+    const docRef = doc(db, collectionName, docId);
+    await deleteDoc(docRef);
     console.log(`Deleted document "${collectionName}/${docId}" from Firebase successfully.`);
   } catch (err: any) {
     console.warn(`Failed to delete document "${collectionName}/${docId}" from Firebase:`, err.message || err);
