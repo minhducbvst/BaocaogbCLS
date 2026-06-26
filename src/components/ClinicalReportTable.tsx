@@ -340,12 +340,14 @@ export default function ClinicalReportTable({
 
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isExcelImportModalOpen, setIsExcelImportModalOpen] = useState(false);
+  const [importMonth, setImportMonth] = useState(() => activeDate.substring(0, 7));
   
   // Excel import helper states
   const [importLogs, setImportLogs] = useState<string[]>([]);
   const [importError, setImportError] = useState<string | null>(null);
   const [parsedReports, setParsedReports] = useState<DailyReport[]>([]);
   const [isImportingProgress, setIsImportingProgress] = useState(false);
+  const [overwriteWarningDates, setOverwriteWarningDates] = useState<string[] | null>(null);
   const [exportStartDate, setExportStartDate] = useState(() => {
     const d = new Date(activeDate);
     if (isNaN(d.getTime())) return '2026-03-01';
@@ -595,99 +597,248 @@ export default function ClinicalReportTable({
           throw new Error('File excel trống hoặc không chứa tiêu đề và dữ liệu hợp lệ.');
         }
 
-        // Identify headers
-        const headers = data[0].map((h: any) => String(h || '').trim().toLowerCase());
-        
-        // Find column indexes
-        let dateColIdx = headers.findIndex((h: string) => h.includes('ngày') || h.includes('date') || h.includes('ngay'));
-        let itemColIdx = headers.findIndex((h: string) => h.includes('chỉ tiêu') || h.includes('tên') || h.includes('mã') || h.includes('procedure') || h.includes('name') || h.includes('id'));
-        let bhColIdx = headers.findIndex((h: string) => h === 'bh' || h.includes('bảo hiểm') || h.includes('bao hiem'));
-        let ndColIdx = headers.findIndex((h: string) => h === 'nd' || h.includes('dịch vụ') || h.includes('dich vu') || h.includes('ngoài dịch vụ') || h.includes('nhân dân') || h.includes('ngoai dich vu'));
-
-        if (dateColIdx === -1) dateColIdx = 0;
-        if (itemColIdx === -1) itemColIdx = 1;
-        if (bhColIdx === -1) bhColIdx = 2;
-        if (ndColIdx === -1) ndColIdx = 3;
-
         const logs: string[] = [];
-        logs.push(`🔍 Hệ thống đã tự động nhận diện cột:`);
-        logs.push(`- Cột Ngày: Cột ${dateColIdx + 1} ("${data[0][dateColIdx] || 'N/A'}")`);
-        logs.push(`- Cột Kỹ thuật: Cột ${itemColIdx + 1} ("${data[0][itemColIdx] || 'N/A'}")`);
-        logs.push(`- Cột Bảo hiểm (BH): Cột ${bhColIdx + 1} ("${data[0][bhColIdx] || 'N/A'}")`);
-        logs.push(`- Cột Dịch vụ (ND): Cột ${ndColIdx + 1} ("${data[0][ndColIdx] || 'N/A'}")`);
+        const [importYear, importMonthNum] = importMonth.split('-').map(Number);
+        
+        // Let's analyze if this is the Grid template or the Row-by-row template
+        // Search for a row containing multiple "BH", "ND" column pairs
+        let subHeaderRowIdx = -1;
+        let firstBhColIdx = -1;
 
-        const reportsByDate: { [date: string]: { [itemId: string]: { bh: number; nd: number } } } = {};
-
-        for (let rowIdx = 1; rowIdx < data.length; rowIdx++) {
-          const row = data[rowIdx];
-          if (!row || row.length === 0) continue;
-
-          let rawDate = row[dateColIdx];
-          if (rawDate === undefined || rawDate === null || rawDate === '') continue;
-
-          let dateStr = '';
-          if (rawDate instanceof Date) {
-            const yyyy = rawDate.getFullYear();
-            const mm = String(rawDate.getMonth() + 1).padStart(2, '0');
-            const dd = String(rawDate.getDate()).padStart(2, '0');
-            dateStr = `${yyyy}-${mm}-${dd}`;
-          } else {
-            const rawStr = String(rawDate).trim();
-            if (!rawStr) continue;
-
-            if (/^\d{4}-\d{2}-\d{2}/.test(rawStr)) {
-              dateStr = rawStr.split(' ')[0];
-            } else if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/.test(rawStr)) {
-              const parts = rawStr.split(/[\/\-]/);
-              const dd = parts[0].padStart(2, '0');
-              const mm = parts[1].padStart(2, '0');
-              const yyyy = parts[2].substring(0, 4);
-              dateStr = `${yyyy}-${mm}-${dd}`;
-            } else {
-              const dParsed = new Date(rawStr);
-              if (!isNaN(dParsed.getTime())) {
-                const yyyy = dParsed.getFullYear();
-                const mm = String(dParsed.getMonth() + 1).padStart(2, '0');
-                const dd = String(dParsed.getDate()).padStart(2, '0');
-                dateStr = `${yyyy}-${mm}-${dd}`;
-              } else {
-                logs.push(`⚠️ Không xử lý được định dạng ngày tại dòng ${rowIdx + 1}: "${rawStr}". Bỏ qua.`);
-                continue;
+        for (let r = 0; r < Math.min(10, data.length); r++) {
+          const row = data[r];
+          if (!row) continue;
+          
+          let pairs = 0;
+          let firstIdx = -1;
+          for (let c = 0; c < row.length - 1; c++) {
+            const val1 = String(row[c] || '').trim().toLowerCase();
+            const val2 = String(row[c+1] || '').trim().toLowerCase();
+            if (val1 === 'bh' && val2 === 'nd') {
+              pairs++;
+              if (firstIdx === -1) {
+                firstIdx = c;
               }
             }
           }
+          if (pairs >= 1 && firstIdx !== -1) {
+            const hasGridKeywords = row.some((cell, idx) => {
+              if (idx >= firstIdx) return false;
+              const s = String(cell || '').trim().toLowerCase();
+              return s.includes('phân loại') || s.includes('chỉ tiêu') || s.includes('kỹ thuật');
+            });
+            
+            if (pairs > 1 || hasGridKeywords) {
+              subHeaderRowIdx = r;
+              firstBhColIdx = firstIdx;
+              break;
+            }
+          }
+        }
 
-          const rawItem = String(row[itemColIdx] || '').trim();
-          if (!rawItem) continue;
+        const reportsByDate: { [date: string]: { [itemId: string]: { bh: number; nd: number } } } = {};
 
-          // Fuzzy search clinical procedure
-          const matchedItem = procedures.find(t => 
-            t.id.toLowerCase() === rawItem.toLowerCase() || 
-            t.name.toLowerCase() === rawItem.toLowerCase() ||
-            t.name.toLowerCase().includes(rawItem.toLowerCase()) ||
-            rawItem.toLowerCase().includes(t.name.toLowerCase())
-          );
+        if (subHeaderRowIdx !== -1 && firstBhColIdx !== -1) {
+          // --- GRID TEMPLATE MODE ---
+          logs.push(`📊 Phát hiện biểu mẫu Excel dạng lưới tháng ${importMonthNum}/${importYear} giống ảnh mẫu:`);
+          logs.push(`- Dòng tiêu đề phụ (BH/ND): Dòng ${subHeaderRowIdx + 1}`);
+          logs.push(`- Cột bắt đầu dữ liệu ngày: Cột ${firstBhColIdx + 1}`);
 
-          if (!matchedItem) {
-            logs.push(`⚠️ Dòng ${rowIdx + 1}: Diễn giải "${rawItem}" không tìm được danh mục kỹ thuật khớp.`);
-            continue;
+          const nameColIdx = Math.max(0, firstBhColIdx - 1);
+          logs.push(`- Cột Tên kỹ thuật: Cột ${nameColIdx + 1}`);
+
+          // Step 1: Detect which days are explicitly specified in the column headers
+          const daysInColumns: { [col: number]: number } = {};
+          const dayHeaderRow = subHeaderRowIdx > 0 ? data[subHeaderRowIdx - 1] : null;
+          const rowLength = data[subHeaderRowIdx].length;
+
+          for (let col = firstBhColIdx; col < rowLength - 1; col += 2) {
+            let dayNum = -1;
+            if (dayHeaderRow) {
+              let rawDayVal = dayHeaderRow[col];
+              if (rawDayVal === undefined || rawDayVal === null || String(rawDayVal).trim() === '') {
+                rawDayVal = dayHeaderRow[col + 1];
+              }
+
+              if (rawDayVal !== undefined && rawDayVal !== null && rawDayVal !== '') {
+                const parsedDay = parseInt(String(rawDayVal).replace(/[^\d]/g, ''), 10);
+                if (!isNaN(parsedDay) && parsedDay >= 1 && parsedDay <= 31) {
+                  dayNum = parsedDay;
+                }
+              }
+            }
+
+            if (dayNum !== -1) {
+              daysInColumns[col] = dayNum;
+            }
           }
 
-          const rawBh = parseInt(String(row[bhColIdx] || '0').replace(/[^\d\-]/g, ''), 10);
-          const rawNd = parseInt(String(row[ndColIdx] || '0').replace(/[^\d\-]/g, ''), 10);
-          const bh = isNaN(rawBh) ? 0 : Math.max(0, rawBh);
-          const nd = isNaN(rawNd) ? 0 : Math.max(0, rawNd);
+          // Fallback if no day headers are found (unlikely, but safe)
+          if (Object.keys(daysInColumns).length === 0) {
+            for (let col = firstBhColIdx; col < rowLength - 1; col += 2) {
+              const colPairIndex = (col - firstBhColIdx) / 2;
+              daysInColumns[col] = colPairIndex + 1;
+            }
+          }
 
-          if (!reportsByDate[dateStr]) {
+          const detectedDaysList = Object.values(daysInColumns).sort((a, b) => a - b);
+          logs.push(`- Nhận diện được ${detectedDaysList.length} ngày cần nhập dữ liệu: ${detectedDaysList.join(', ')}`);
+
+          // Step 2: Pre-initialize reportsByDate for all identified days in columns (to 0 for all procedures)
+          // This ensures that the days listed in Excel are fully updated, and other days are untouched.
+          Object.values(daysInColumns).forEach(dayNum => {
+            const dateStr = `${importYear}-${String(importMonthNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
             reportsByDate[dateStr] = {};
-          }
+            procedures.forEach(p => {
+              reportsByDate[dateStr][p.id] = { bh: 0, nd: 0 };
+            });
+          });
 
-          if (!reportsByDate[dateStr][matchedItem.id]) {
-            reportsByDate[dateStr][matchedItem.id] = { bh: 0, nd: 0 };
-          }
+          // Step 3: Populate values from each row
+          for (let rowIdx = subHeaderRowIdx + 1; rowIdx < data.length; rowIdx++) {
+            const row = data[rowIdx];
+            if (!row || row.length === 0) continue;
 
-          reportsByDate[dateStr][matchedItem.id].bh += bh;
-          reportsByDate[dateStr][matchedItem.id].nd += nd;
+            const rawItem = String(row[nameColIdx] || '').trim();
+            if (!rawItem) continue;
+
+            // Skip total rows to avoid double counting or warnings!
+            const rawItemLower = rawItem.toLowerCase();
+            if (rawItemLower.includes('tổng số') || rawItemLower.includes('tổng cộng') || rawItemLower.includes('subtotal') || rawItemLower.includes('total')) {
+              continue; // Ignore summary/total rows
+            }
+
+            // Fuzzy search technical procedure
+            const matchedItem = procedures.find(t => 
+              t.id.toLowerCase() === rawItemLower || 
+              t.name.toLowerCase() === rawItemLower ||
+              t.name.toLowerCase().includes(rawItemLower) ||
+              rawItemLower.includes(t.name.toLowerCase())
+            );
+
+            if (!matchedItem) {
+              logs.push(`⚠️ Dòng ${rowIdx + 1}: Diễn giải "${rawItem}" không tìm được danh mục kỹ thuật khớp. Bỏ qua.`);
+              continue;
+            }
+
+            // Loop through day columns
+            for (let col = firstBhColIdx; col < row.length - 1; col += 2) {
+              const dayNum = daysInColumns[col];
+              if (!dayNum) continue; // Skip column if no valid day detected
+
+              const maxDays = new Date(importYear, importMonthNum, 0).getDate();
+              if (dayNum < 1 || dayNum > maxDays) continue;
+
+              const dateStr = `${importYear}-${String(importMonthNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+
+              const rawBh = parseInt(String(row[col] || '0').replace(/[^\d\-]/g, ''), 10);
+              const rawNd = parseInt(String(row[col + 1] || '0').replace(/[^\d\-]/g, ''), 10);
+              const bh = isNaN(rawBh) ? 0 : Math.max(0, rawBh);
+              const nd = isNaN(rawNd) ? 0 : Math.max(0, rawNd);
+
+              if (reportsByDate[dateStr] && reportsByDate[dateStr][matchedItem.id]) {
+                reportsByDate[dateStr][matchedItem.id] = { bh, nd };
+              }
+            }
+          }
+        } else {
+          // --- ROW BY ROW TEMPLATE MODE ---
+          logs.push(`📝 Phát hiện biểu mẫu Excel dạng dòng kê khai (Ngày, Kỹ thuật, BH, ND):`);
+          
+          // Identify headers
+          const headers = data[0].map((h: any) => String(h || '').trim().toLowerCase());
+          
+          let dateColIdx = headers.findIndex((h: string) => {
+            const clean = h.toLowerCase().trim();
+            return clean === 'ngày' || clean === 'ngay' || clean === 'date' || clean === 'ngày báo cáo' || clean === 'ngay bao cao';
+          });
+          let itemColIdx = headers.findIndex((h: string) => {
+            const clean = h.toLowerCase().trim();
+            return clean === 'chỉ tiêu' || clean === 'chi tieu' || clean === 'tên kỹ thuật' || clean === 'ten ky thuat' || clean === 'tên' || clean === 'ten' || clean === 'mã' || clean === 'ma' || clean === 'procedure' || clean === 'name' || clean === 'id';
+          });
+          let bhColIdx = headers.findIndex((h: string) => h === 'bh' || h.includes('bảo hiểm') || h.includes('bao hiem'));
+          let ndColIdx = headers.findIndex((h: string) => h === 'nd' || h.includes('dịch vụ') || h.includes('dich vu') || h.includes('ngoài dịch vụ') || h.includes('nhân dân') || h.includes('ngoai dich vu'));
+
+          if (dateColIdx === -1) dateColIdx = 0;
+          if (itemColIdx === -1) itemColIdx = 1;
+          if (bhColIdx === -1) bhColIdx = 2;
+          if (ndColIdx === -1) ndColIdx = 3;
+
+          logs.push(`- Cột Ngày: Cột ${dateColIdx + 1} ("${data[0][dateColIdx] || 'N/A'}")`);
+          logs.push(`- Cột Kỹ thuật: Cột ${itemColIdx + 1} ("${data[0][itemColIdx] || 'N/A'}")`);
+          logs.push(`- Cột BH: Cột ${bhColIdx + 1} ("${data[0][bhColIdx] || 'N/A'}")`);
+          logs.push(`- Cột ND: Cột ${ndColIdx + 1} ("${data[0][ndColIdx] || 'N/A'}")`);
+
+          for (let rowIdx = 1; rowIdx < data.length; rowIdx++) {
+            const row = data[rowIdx];
+            if (!row || row.length === 0) continue;
+
+            let rawDate = row[dateColIdx];
+            if (rawDate === undefined || rawDate === null || rawDate === '') continue;
+
+            let dateStr = '';
+            if (rawDate instanceof Date) {
+              const yyyy = rawDate.getFullYear();
+              const mm = String(rawDate.getMonth() + 1).padStart(2, '0');
+              const dd = String(rawDate.getDate()).padStart(2, '0');
+              dateStr = `${yyyy}-${mm}-${dd}`;
+            } else {
+              const rawStr = String(rawDate).trim();
+              if (!rawStr) continue;
+
+              if (/^\d{4}-\d{2}-\d{2}/.test(rawStr)) {
+                dateStr = rawStr.split(' ')[0];
+              } else if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/.test(rawStr)) {
+                const parts = rawStr.split(/[\/\-]/);
+                const dd = parts[0].padStart(2, '0');
+                const mm = parts[1].padStart(2, '0');
+                const yyyy = parts[2].substring(0, 4);
+                dateStr = `${yyyy}-${mm}-${dd}`;
+              } else {
+                const dParsed = new Date(rawStr);
+                if (!isNaN(dParsed.getTime())) {
+                  const yyyy = dParsed.getFullYear();
+                  const mm = String(dParsed.getMonth() + 1).padStart(2, '0');
+                  const dd = String(dParsed.getDate()).padStart(2, '0');
+                  dateStr = `${yyyy}-${mm}-${dd}`;
+                } else {
+                  logs.push(`⚠️ Không xử lý được định dạng ngày tại dòng ${rowIdx + 1}: "${rawStr}". Bỏ qua.`);
+                  continue;
+                }
+              }
+            }
+
+            const rawItem = String(row[itemColIdx] || '').trim();
+            if (!rawItem) continue;
+
+            const matchedItem = procedures.find(t => 
+              t.id.toLowerCase() === rawItem.toLowerCase() || 
+              t.name.toLowerCase() === rawItem.toLowerCase() ||
+              t.name.toLowerCase().includes(rawItem.toLowerCase()) ||
+              rawItem.toLowerCase().includes(t.name.toLowerCase())
+            );
+
+            if (!matchedItem) {
+              logs.push(`⚠️ Dòng ${rowIdx + 1}: Diễn giải "${rawItem}" không tìm được danh mục kỹ thuật khớp.`);
+              continue;
+            }
+
+            const rawBh = parseInt(String(row[bhColIdx] || '0').replace(/[^\d\-]/g, ''), 10);
+            const rawNd = parseInt(String(row[ndColIdx] || '0').replace(/[^\d\-]/g, ''), 10);
+            const bh = isNaN(rawBh) ? 0 : Math.max(0, rawBh);
+            const nd = isNaN(rawNd) ? 0 : Math.max(0, rawNd);
+
+            if (!reportsByDate[dateStr]) {
+              reportsByDate[dateStr] = {};
+            }
+
+            if (!reportsByDate[dateStr][matchedItem.id]) {
+              reportsByDate[dateStr][matchedItem.id] = { bh: 0, nd: 0 };
+            }
+
+            reportsByDate[dateStr][matchedItem.id].bh += bh;
+            reportsByDate[dateStr][matchedItem.id].nd += nd;
+          }
         }
 
         const finalReports: DailyReport[] = Object.keys(reportsByDate).map(d => {
@@ -736,33 +887,106 @@ export default function ClinicalReportTable({
   };
 
   const handleDownloadExcelTemplate = () => {
-    // Generate a perfect xlsx template
-    const wsData = [
-      ["Ngày báo cáo (YYYY-MM-DD)*", "Chỉ tiêu kỹ thuật chuẩn (Tên hoặc ID)*", "Số ca Bảo hiểm (BH)", "Số ca Dịch vụ (ND)"],
-      ["2026-03-01", "Siêu âm tim", 15, 8],
-      ["2026-03-01", "Nội soi dạ dày", 25, 12],
-      ["2026-03-01", "X quang", 50, 20],
-      ["2026-03-02", "Siêu âm tim", 10, 5],
-      ["2026-03-02", "Siêu âm mạch", 8, 3]
-    ];
+    const categoryNames: { [key: string]: string } = {
+      sieuAm: "Siêu Âm",
+      noiSoi: "Nội Soi",
+      xQuang: "X quang",
+      dienTimLHN: "Điện tim & LHN",
+      xetNghiem: "Xét nghiệm"
+    };
+
+    const wsData: any[][] = [];
+    
+    // Row 0: Info row
+    wsData.push([
+      "Tháng báo cáo (YYYY-MM):", 
+      importMonth, 
+      "Lưu ý: Không đổi cấu trúc cột. Nhập số lượng ca Bảo hiểm (BH) & Dịch vụ (ND) cho từng ngày từ 1 đến 31."
+    ]);
+
+    // Row 1: Day Headers
+    const r2: any[] = ["Phân loại", "Chỉ tiêu kỹ thuật / Ngày"];
+    // Row 2: Sub-headers (BH/ND)
+    const r3: any[] = ["", ""];
+
+    for (let d = 1; d <= 31; d++) {
+      r2.push(d, "");
+      r3.push("BH", "ND");
+    }
+
+    wsData.push(r2);
+    wsData.push(r3);
+
+    // Group procedures by category
+    const categories = Array.from(new Set(procedures.map(p => p.category)));
+    
+    categories.forEach(cat => {
+      const catProcs = procedures.filter(p => p.category === cat);
+      const catName = categoryNames[cat] || cat;
+      
+      catProcs.forEach((proc, idx) => {
+        const row: any[] = [idx === 0 ? catName : "", proc.name];
+        // 31 days * 2 columns = 62 value cells
+        for (let col = 0; col < 62; col++) {
+          row.push(0); // Default to 0
+        }
+        wsData.push(row);
+      });
+
+      // Subtotal "Tổng số" row for this category
+      const totalRow = ["", `Tổng số ${catName}`];
+      for (let col = 0; col < 62; col++) {
+        totalRow.push("");
+      }
+      wsData.push(totalRow);
+    });
 
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-    const wscols = [
-      {wch: 28},
-      {wch: 42},
-      {wch: 24},
-      {wch: 24}
+    // Merging cells
+    const merges = [
+      // Merge Row 1 & Row 2 for "Phân loại" (Column A)
+      { s: { r: 1, c: 0 }, e: { r: 2, c: 0 } },
+      // Merge Row 1 & Row 2 for "Chỉ tiêu kỹ thuật / Ngày" (Column B)
+      { s: { r: 1, c: 1 }, e: { r: 2, c: 1 } },
     ];
+
+    // Merge day headers horizontally
+    for (let d = 1; d <= 31; d++) {
+      const col = 2 * d;
+      merges.push({ s: { r: 1, c: col }, e: { r: 1, c: col + 1 } });
+    }
+
+    ws['!merges'] = merges;
+
+    // Define column widths
+    const wscols = [
+      { wch: 18 }, // Phân loại
+      { wch: 32 }, // Chỉ tiêu kỹ thuật
+    ];
+    for (let col = 0; col < 62; col++) {
+      wscols.push({ wch: 5 }); // Keep days columns narrow and neat
+    }
     ws['!cols'] = wscols;
 
-    XLSX.utils.book_append_sheet(wb, ws, "Bieu_mau_kê_khai");
-    XLSX.writeFile(wb, "Bieu_mau_nhap_lieu_excel_clinics.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, `Bao_cao_thang_${importMonth.substring(5)}`);
+    XLSX.writeFile(wb, `Bieu_mau_nhap_lieu_thang_${importMonth.replace('-', '_')}.xlsx`);
   };
 
   const handleExecuteImport = async () => {
     if (parsedReports.length === 0 || !onBulkSaveReports) return;
+
+    // Check if any of the parsed dates already have data in the application
+    const existing = parsedReports
+      .map(r => r.date)
+      .filter(d => reports.some(existingRep => existingRep.date === d));
+
+    if (existing.length > 0) {
+      setOverwriteWarningDates(existing);
+      return;
+    }
+
     setIsImportingProgress(true);
     try {
       await onBulkSaveReports(parsedReports);
@@ -2380,16 +2604,16 @@ export default function ClinicalReportTable({
                     💡 Hướng dẫn cấu trúc tệp Excel biểu mẫu:
                   </h4>
                   <ul className="list-disc list-inside space-y-1 text-slate-600 pl-1 leading-relaxed">
-                    <li>Nhận diện cột tự động theo tên: <strong className="text-slate-800">Ngày</strong> (hoặc Date), <strong className="text-slate-800">Chỉ tiêu</strong> (hoặc Tên), <strong className="text-slate-800">BH</strong>, <strong className="text-slate-800">ND</strong>.</li>
-                    <li>Đột phá: Hỗ trợ tự động phân tích định dạng ngày chuẩn quốc tế (<code className="text-emerald-700 bg-emerald-50 px-1 font-mono text-[10px] rounded">YYYY-MM-DD</code>) lẫn Việt Nam (<code className="text-emerald-700 bg-emerald-50 px-1 font-mono text-[10px] rounded">DD/MM/YYYY</code>).</li>
-                    <li>Chế độ so khớp thông minh: Hệ thống tự động so khớp gần đúng tên kỹ thuật (ví dụ: <span className="italic">"Siêu âm tim"</span>, <span className="italic">"Nội soi dạ dày"</span>...) với 30 chỉ tiêu chuẩn.</li>
+                    <li><strong>Mẫu 1 (Biểu mẫu dạng lưới giống ảnh):</strong> Cột A chứa Phân loại, Cột B chứa Tên kỹ thuật. Các cột tiếp theo chia cặp BH/ND đại diện cho ngày 1 đến ngày 31 của tháng.</li>
+                    <li><strong>Mẫu 2 (Biểu mẫu dạng dòng):</strong> Tự động nhận diện các cột <strong className="text-slate-800">Ngày</strong>, <strong className="text-slate-800">Chỉ tiêu</strong>, <strong className="text-slate-800">BH</strong>, <strong className="text-slate-800">ND</strong>.</li>
+                    <li><strong>Tự động so khớp:</strong> So khớp thông minh tên kỹ thuật (ví dụ: "Siêu âm tim", "Nội soi dạ dày"...) với danh mục chuẩn.</li>
                   </ul>
                 </div>
 
                 <div className="bg-emerald-50/40 rounded-lg p-3.5 border border-emerald-150 flex flex-col justify-between space-y-2 text-center">
                   <div>
                     <h5 className="font-extrabold text-emerald-850 text-[11px] uppercase tracking-wide">Tải File Excel Mẫu</h5>
-                    <p className="text-[10px] text-emerald-800 mt-1 leading-relaxed">Sử dụng tệp excel chuẩn để đảm bảo tỷ lệ so khớp cao tối đa.</p>
+                    <p className="text-[10px] text-emerald-800 mt-1 leading-relaxed">Tải biểu mẫu dạng lưới cực kỳ trực quan đúng chuẩn báo cáo thực tế.</p>
                   </div>
                   <button
                     type="button"
@@ -2399,6 +2623,32 @@ export default function ClinicalReportTable({
                     <FileDown className="w-4 h-4 text-emerald-100" />
                     Tải mẫu Excel (.xlsx) 📥
                   </button>
+                </div>
+              </div>
+
+              {/* Month Selector Container */}
+              <div className="bg-indigo-55/60 rounded-xl p-4 border border-indigo-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="text-left">
+                  <h5 className="font-extrabold text-indigo-950 text-xs uppercase tracking-wide flex items-center gap-1.5">
+                    📅 Chọn Tháng Nhập Số Liệu:
+                  </h5>
+                  <p className="text-[10px] text-indigo-700/90 mt-1">
+                    Ngày 1 đến 31 trong file Excel sẽ được hệ thống nạp tương ứng vào tháng/năm này.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+                  <input 
+                    type="month"
+                    value={importMonth}
+                    onChange={(e) => {
+                      setImportMonth(e.target.value);
+                      // Clear previous results to force re-parse when month changes
+                      setParsedReports([]);
+                      setImportLogs([]);
+                      setImportError(null);
+                    }}
+                    className="w-full sm:w-48 bg-white border border-slate-250 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500 shadow-3xs"
+                  />
                 </div>
               </div>
 
@@ -2662,6 +2912,68 @@ export default function ClinicalReportTable({
                 className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition hover:bg-rose-700 cursor-pointer hover:scale-[1.02] active:scale-95 flex items-center justify-center"
               >
                 {isDeletingReport ? 'Đang xóa...' : 'Xác nhận xóa'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {overwriteWarningDates && createPortal(
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[20000] animate-fade-in text-slate-800">
+          <div className="bg-white rounded-xl max-w-sm w-full p-5 shadow-xl border border-slate-205 space-y-4 animate-scale-up text-left">
+            <div className="flex items-start gap-3">
+              <span className="p-2.5 rounded-full bg-rose-50 text-rose-600 shrink-0">
+                <ShieldAlert className="w-5 h-5 animate-pulse" />
+              </span>
+              <div>
+                <h4 className="font-extrabold text-slate-900 text-sm">Cảnh báo trùng lặp số liệu</h4>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Hệ thống phát hiện có <strong className="text-rose-600 font-extrabold">{overwriteWarningDates.length} ngày</strong> trong file Excel đã tồn tại dữ liệu trên ứng dụng:
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-150 rounded-lg p-2.5 max-h-[100px] overflow-y-auto text-[10px] font-mono text-slate-700 grid grid-cols-2 gap-1 shadow-inner">
+              {overwriteWarningDates.sort().map(d => (
+                <div key={d} className="flex items-center gap-1.5">
+                  <span className="text-rose-500">•</span> {formatDateToDDMMYYYY(d)}
+                </div>
+              ))}
+            </div>
+
+            <p className="text-[11px] text-slate-500 leading-relaxed font-semibold">
+              Các ngày này sẽ bị ghi đè hoàn toàn bằng dữ liệu mới từ file Excel. <span className="text-emerald-700 font-bold">Các ngày khác không có trong file vẫn sẽ giữ nguyên vẹn.</span>
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setOverwriteWarningDates(null)}
+                className="px-3.5 py-2 rounded-lg border border-slate-200 text-slate-600 bg-white text-xs font-bold transition hover:bg-slate-50 cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const datesToSave = [...parsedReports];
+                  setOverwriteWarningDates(null);
+                  setIsImportingProgress(true);
+                  try {
+                    await onBulkSaveReports(datesToSave);
+                    setIsExcelImportModalOpen(false);
+                    setParsedReports([]);
+                    setImportLogs([]);
+                  } catch (err: any) {
+                    setImportError(err.message || 'Đã xảy ra lỗi khi lưu vào cơ sở dữ liệu.');
+                  } finally {
+                    setIsImportingProgress(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition cursor-pointer hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-1"
+              >
+                Đồng ý ghi đè 💥
               </button>
             </div>
           </div>

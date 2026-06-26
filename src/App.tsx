@@ -113,7 +113,6 @@ export default function App() {
   // Load all initial mock databases from the server
   const fetchAllData = async () => {
     setIsSyncing(true);
-    setErrorBanner(null);
     try {
       const urls = [
         { name: 'reports', url: '/api/reports' },
@@ -124,54 +123,72 @@ export default function App() {
         { name: 'procedures', url: '/api/procedures' }
       ];
 
-      const responses = await Promise.all(urls.map(u => fetch(u.url)));
+      // Fetch each endpoint independently to prevent one 429/error from blocking others
+      const responses = await Promise.all(
+        urls.map(async (u) => {
+          try {
+            const res = await fetch(u.url);
+            if (!res.ok) {
+              console.warn(`Fetch failed for ${u.url}: Status ${res.status} ${res.statusText}`);
+              return { name: u.name, ok: false, status: res.status, data: null };
+            }
+            const text = await res.text();
+            const data = JSON.parse(text);
+            return { name: u.name, ok: true, status: res.status, data };
+          } catch (err) {
+            console.warn(`Error loading ${u.url}:`, err);
+            return { name: u.name, ok: false, status: 500, data: null };
+          }
+        })
+      );
 
-      // Check if any response is not ok
-      for (let i = 0; i < responses.length; i++) {
-        const res = responses[i];
-        const urlItem = urls[i];
-        if (!res.ok) {
-          throw new Error(`Fetch failed for ${urlItem.url}: Status ${res.status} ${res.statusText}`);
-        }
-      }
-
-      // Read responses as text first to handle JSON parsing cleanly
       const dataResults: any = {};
-      for (let i = 0; i < responses.length; i++) {
-        const res = responses[i];
-        const urlItem = urls[i];
-        const text = await res.text();
-        try {
-          dataResults[urlItem.name] = JSON.parse(text);
-        } catch (e: any) {
-          console.error(`JSON Parse error for ${urlItem.url}. Response text starts with:`, text.substring(0, 200));
-          throw new Error(`Endpoint ${urlItem.url} returned invalid JSON instead of data. Header starts with: ${text.substring(0, 80)}`);
+      let hasCriticalError = false;
+
+      for (const res of responses) {
+        if (res.ok) {
+          dataResults[res.name] = res.data;
+        } else {
+          // If we hit 429, log warning but don't count as a critical application crash
+          if (res.status === 429) {
+            console.warn(`Rate limit (429) hit for ${res.name}. Falling back to previous or cached state.`);
+          } else {
+            hasCriticalError = true;
+          }
         }
       }
 
       const reportsData = dataResults.reports;
       const meetingsData = dataResults.meetings;
-      const notificationsData = dataResults.notifications as AppNotification[];
+      const notificationsData = dataResults.notifications as AppNotification[] | undefined;
       const usersData = dataResults.users;
       const settingsData = dataResults.settings;
       const proceduresData = dataResults.procedures;
 
-      if (reportsData && meetingsData && notificationsData && usersData) {
-        setReports(reportsData);
-        setMeetings(meetingsData);
-        setNotifications(notificationsData);
-        setUsers(usersData);
-        if (proceduresData) {
-          setProcedures(proceduresData);
-        }
-        if (settingsData) {
-          setSystemSettings(settingsData);
-        }
+      // Only throw error if we don't have existing loaded state AND fetch failed critically
+      if (hasCriticalError && reports.length === 0) {
+        throw new Error("Không thể tải dữ liệu khởi tạo của hệ thống.");
+      }
 
+      // Update state with any successfully fetched data
+      if (reportsData !== undefined) setReports(reportsData);
+      if (meetingsData !== undefined) setMeetings(meetingsData);
+      if (notificationsData !== undefined) setNotifications(notificationsData);
+      if (usersData !== undefined) setUsers(usersData);
+      if (proceduresData !== undefined) setProcedures(proceduresData);
+      if (settingsData !== undefined) setSystemSettings(settingsData);
+
+      // If we got the critical datasets successfully (or have cached ones), clear error banner
+      if (reportsData !== undefined || reports.length > 0) {
+        setErrorBanner(null);
+      }
+
+      const actualUsers = usersData !== undefined ? usersData : users;
+      if (actualUsers) {
         // Dynamic update of current user roles/name if edited in admin portal
         const latestUser = currentUserRef.current;
         if (latestUser) {
-          const freshMe = usersData.find((u: User) => u.id === latestUser.id);
+          const freshMe = actualUsers.find((u: User) => u.id === latestUser.id);
           if (freshMe) {
             const hasChanged = 
               freshMe.name !== latestUser.name ||
@@ -187,68 +204,68 @@ export default function App() {
             }
           }
         }
+      }
 
-        // Process new incoming notifications to trigger pushes/toasts if appropriate
-        if (notificationsData && notificationsData.length > 0) {
-          setKnownIds(prevKnown => {
-            // If prevKnown is empty, it means we are in the initial boot stage.
-            // Under this scenario, we just populate the Set so we do not trigger annoying historic notifications.
-            if (prevKnown.size === 0) {
-              return new Set<string>(notificationsData.map(n => n.id));
+      // Process new incoming notifications to trigger pushes/toasts if appropriate
+      if (notificationsData && notificationsData.length > 0) {
+        setKnownIds(prevKnown => {
+          // If prevKnown is empty, it means we are in the initial boot stage.
+          // Under this scenario, we just populate the Set so we do not trigger annoying historic notifications.
+          if (prevKnown.size === 0) {
+            return new Set<string>(notificationsData.map(n => n.id));
+          }
+
+          // Find any notification that is NOT in prevKnown and is unread
+          const newUnreadNotifs = notificationsData.filter(n => !prevKnown.has(n.id) && !n.read);
+          
+          if (newUnreadNotifs.length > 0) {
+            // Load active preferences from localStorage
+            let prefs = defaultPreferences;
+            const saved = localStorage.getItem('user-notification-prefs');
+            if (saved) {
+              try { prefs = JSON.parse(saved); } catch (e) {}
             }
 
-            // Find any notification that is NOT in prevKnown and is unread
-            const newUnreadNotifs = notificationsData.filter(n => !prevKnown.has(n.id) && !n.read);
-            
-            if (newUnreadNotifs.length > 0) {
-              // Load active preferences from localStorage
-              let prefs = defaultPreferences;
-              const saved = localStorage.getItem('user-notification-prefs');
-              if (saved) {
-                try { prefs = JSON.parse(saved); } catch (e) {}
+            // Filter based on user preferences
+            const filteredNew = newUnreadNotifs.filter(n => {
+              if (n.type === 'meeting' && !prefs.meetingReminders) return false;
+              if (n.type === 'task' && !prefs.newTasks) return false;
+              if (n.type === 'update' && !prefs.managementUpdates) return false;
+              if (n.type === 'report' && !prefs.reportApprovals) return false;
+              return true;
+            });
+
+            if (filteredNew.length > 0) {
+              // Focus on the newest one to show as visual toast overlay
+              const newest = filteredNew[0];
+              setActiveToast(newest);
+
+              // Play Medical Alert sound chime
+              if (prefs.soundEnabled) {
+                playMedicalChime();
               }
 
-              // Filter based on user preferences
-              const filteredNew = newUnreadNotifs.filter(n => {
-                if (n.type === 'meeting' && !prefs.meetingReminders) return false;
-                if (n.type === 'task' && !prefs.newTasks) return false;
-                if (n.type === 'update' && !prefs.managementUpdates) return false;
-                if (n.type === 'report' && !prefs.reportApprovals) return false;
-                return true;
-              });
-
-              if (filteredNew.length > 0) {
-                // Focus on the newest one to show as visual toast overlay
-                const newest = filteredNew[0];
-                setActiveToast(newest);
-
-                // Play Medical Alert sound chime
-                if (prefs.soundEnabled) {
-                  playMedicalChime();
-                }
-
-                // Push Native Web Notification alert if enabled and granted
-                if (prefs.browserPush && 'Notification' in window && Notification.permission === 'granted') {
-                  try {
-                    new Notification(newest.title, {
-                      body: newest.content,
-                      icon: '/favicon.ico'
-                    });
-                  } catch (err) {
-                    console.warn("Could not dispatch browser native notification:", err);
-                  }
+              // Push Native Web Notification alert if enabled and granted
+              if (prefs.browserPush && 'Notification' in window && Notification.permission === 'granted') {
+                try {
+                  new Notification(newest.title, {
+                    body: newest.content,
+                    icon: '/favicon.ico'
+                  });
+                } catch (err) {
+                  console.warn("Could not dispatch browser native notification:", err);
                 }
               }
-
-              // Return updated Set
-              const updatedSet = new Set(prevKnown);
-              notificationsData.forEach(n => updatedSet.add(n.id));
-              return updatedSet;
             }
 
-            return prevKnown;
-          });
-        }
+            // Return updated Set
+            const updatedSet = new Set(prevKnown);
+            notificationsData.forEach(n => updatedSet.add(n.id));
+            return updatedSet;
+          }
+
+          return prevKnown;
+        });
       }
     } catch (err: any) {
       console.error('Error fetching data:', err);

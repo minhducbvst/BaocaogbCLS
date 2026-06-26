@@ -154,14 +154,14 @@ export default function Header({
           <div className="flex items-center space-x-3">
             {/* Google Connection Status Indicator */}
             <div 
-              className={`p-1 px-2 rounded-md flex items-center gap-1.5 text-[11px] border cursor-help select-none ${
+              className={`w-8 h-8 rounded-full flex items-center justify-center border cursor-help select-none transition-all duration-300 relative ${
                 isGoogleConnected 
-                  ? 'bg-emerald-50/50 dark:bg-emerald-950/10 border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-400 font-bold'
-                  : 'bg-slate-50/50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-medium'
+                  ? 'bg-emerald-100 border-emerald-300 dark:bg-emerald-950/60 dark:border-emerald-800 shadow-xs'
+                  : 'bg-slate-100 border-slate-300 dark:bg-slate-900/60 dark:border-slate-800'
               }`}
-              title={isGoogleConnected ? "Tài khoản Google đã kết nối thành công để đồng bộ Google Sheets" : "Tài khoản Google chưa kết nối"}
+              title={isGoogleConnected ? "Google: Đã kết nối để đồng bộ Google Sheets" : "Google: Chưa kết nối"}
             >
-              <div className="w-3.5 h-3.5 bg-white rounded-full flex items-center justify-center p-0.5 shrink-0 border border-slate-200/50 dark:border-transparent">
+              <div className="w-4 h-4 flex items-center justify-center shrink-0">
                 <svg viewBox="0 0 48 48" className="w-full h-full">
                   <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
                   <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
@@ -169,11 +169,9 @@ export default function Header({
                   <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
                 </svg>
               </div>
-              <span className="hidden lg:inline text-slate-500 dark:text-slate-400 font-medium">Google:</span>
-              <span className="flex items-center gap-1">
-                <span className={`w-1.5 h-1.5 rounded-full ${isGoogleConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-                {isGoogleConnected ? 'Đã kết nối' : 'Chưa liên kết'}
-              </span>
+              <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-white dark:border-slate-900 ${
+                isGoogleConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+              }`} />
             </div>
 
             {/* Syncing State Indicator */}
