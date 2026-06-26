@@ -44,7 +44,32 @@ export default function ClinicalReportTable({
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
   const [isPullingSheets, setIsPullingSheets] = useState(false);
   const [showSheetsConfig, setShowSheetsConfig] = useState(false);
-  const [sheetsSyncMessage, setSheetsSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [sheetsSyncMessage, setSheetsSyncMessage] = useState<{ 
+    type: 'success' | 'error'; 
+    text: string;
+    syncType?: string;
+    overwrite?: boolean;
+    details?: {
+      dayDetails?: {
+        id: string;
+        name: string;
+        status: 'dong_bo_moi' | 'giu_nguyen' | 'ghi_de' | 'trong';
+        appBh: number;
+        appNd: number;
+        sheetBh: number;
+        sheetNd: number;
+        resolvedBh: number;
+        resolvedNd: number;
+      }[];
+      syncedDays?: string[];
+      unsyncedDays?: { date: string; reason: string }[];
+      largeSync?: {
+        syncedCount: number;
+        unsyncedCount: number;
+        reasons: { reason: string; count: number }[];
+      };
+    };
+  } | null>(null);
   const [confirmSheetSync, setConfirmSheetSync] = useState<{ timeRange: 'day' | 'week' | 'month' | 'year'; overwrite: boolean } | null>(null);
   const [confirmSheetPull, setConfirmSheetPull] = useState<{ timeRange: 'day' | 'week' | 'month' | 'year'; overwrite: boolean } | null>(null);
   const [syncDirection, setSyncDirection] = useState<'push' | 'pull'>('push');
@@ -143,7 +168,10 @@ export default function ClinicalReportTable({
       if (response.ok) {
         setSheetsSyncMessage({
           type: 'success',
-          text: data.message || 'Đồng bộ Google Sheets thành công!'
+          text: data.message || 'Đồng bộ Google Sheets thành công!',
+          syncType: data.syncType,
+          overwrite: data.overwrite,
+          details: data.details
         });
       } else {
         if (response.status === 401 || data.reauthRequired || (data.error && (data.error.includes("401") || data.error.includes("UNAUTHENTICATED") || data.error.includes("credentials")))) {
@@ -1484,7 +1512,7 @@ export default function ClinicalReportTable({
                   <DownloadCloud className="w-5 h-5" />
                 </span>
                 <div className="space-y-0.5">
-                  <span className="text-xs font-black text-slate-850 dark:text-slate-200 block font-sans">TAI DỮ LIỆU XUỐNG CLINIS 📥</span>
+                  <span className="text-xs font-black text-slate-850 dark:text-slate-200 block font-sans">TẢI DỮ LIỆU XUỐNG CLINIS 📥</span>
                   <span className="text-[10.5px] text-slate-500 dark:text-slate-450 font-semibold block leading-normal">Tải số liệu từ Google Sheets về lưu trữ ở Clinis</span>
                 </div>
               </div>
@@ -1715,21 +1743,149 @@ export default function ClinicalReportTable({
 
           {/* Sync message callback feedback */}
           {sheetsSyncMessage && (
-            <div className={`p-3 rounded-lg text-xs font-bold leading-relaxed shadow-3xs border flex items-center justify-between gap-2 transition duration-200 ${
-              sheetsSyncMessage.type === 'success' 
-                ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-250/50 text-emerald-800 dark:text-emerald-400' 
-                : 'bg-rose-50 dark:bg-rose-950/20 border-rose-250/50 text-rose-800 dark:text-rose-450'
-            }`}>
-              <span>
-                {sheetsSyncMessage.type === 'success' ? '➔ ✅' : '➔ ⚠️'} {sheetsSyncMessage.text}
-              </span>
-              <button 
-                type="button" 
-                onClick={() => setSheetsSyncMessage(null)}
-                className="text-[10px] opacity-70 hover:opacity-100 select-none px-1 py-0.5 hover:bg-slate-205/50 rounded cursor-pointer"
-              >
-                ✕
-              </button>
+            <div className="space-y-2">
+              <div className={`p-3 rounded-lg text-xs font-bold leading-relaxed shadow-3xs border flex items-center justify-between gap-2 transition duration-200 ${
+                sheetsSyncMessage.type === 'success' 
+                  ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-250/50 text-emerald-800 dark:text-emerald-400' 
+                  : 'bg-rose-50 dark:bg-rose-950/20 border-rose-250/50 text-rose-800 dark:text-rose-450'
+              }`}>
+                <span>
+                  {sheetsSyncMessage.type === 'success' ? '➔ ✅' : '➔ ⚠️'} {sheetsSyncMessage.text}
+                </span>
+                <button 
+                  type="button" 
+                  onClick={() => setSheetsSyncMessage(null)}
+                  className="text-[10px] opacity-70 hover:opacity-100 select-none px-1 py-0.5 hover:bg-slate-205/50 rounded cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Detailed Sync Statistics Panel */}
+              {sheetsSyncMessage.type === 'success' && sheetsSyncMessage.details && (
+                <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs space-y-3 shadow-3xs animate-slide-in">
+                  <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-1.5">
+                    <span className="font-bold text-[11px] text-slate-800 dark:text-slate-200 block uppercase font-sans">
+                      📊 Chi tiết kết quả đồng bộ (Chế độ: {sheetsSyncMessage.overwrite ? "Ghi đè" : "Không ghi đè"})
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      Loại: {sheetsSyncMessage.syncType === 'day' ? 'Hàng ngày' : sheetsSyncMessage.syncType === 'week' ? 'Hàng tuần' : sheetsSyncMessage.syncType === 'month' ? 'Hàng tháng' : sheetsSyncMessage.syncType === 'year' ? 'Cả năm' : 'Toàn bộ'}
+                    </span>
+                  </div>
+
+                  {/* 1. Single Day Details */}
+                  {sheetsSyncMessage.syncType === 'day' && sheetsSyncMessage.details.dayDetails && (
+                    <div className="space-y-2">
+                      <p className="text-[10.5px] text-slate-650 dark:text-slate-400 font-semibold leading-relaxed">
+                        Danh sách dịch vụ kỹ thuật đã được rà soát và đồng bộ ngày này:
+                      </p>
+                      <div className="max-h-60 overflow-y-auto border border-slate-150 dark:border-slate-800/85 rounded divide-y divide-slate-100 dark:divide-slate-850">
+                        {sheetsSyncMessage.details.dayDetails.filter(item => item.status !== 'trong').length === 0 ? (
+                          <div className="p-3 text-center text-slate-500">
+                            Không có dịch vụ nào có dữ liệu phát sinh để cập nhật.
+                          </div>
+                        ) : (
+                          sheetsSyncMessage.details.dayDetails
+                            .filter(item => item.status !== 'trong')
+                            .map((item, index) => (
+                              <div key={item.id || index} className="p-2 flex items-start justify-between gap-2 bg-white dark:bg-slate-950">
+                                <div className="space-y-0.5">
+                                  <span className="font-bold text-slate-800 dark:text-slate-300 block text-[11px]">{item.name}</span>
+                                  <div className="flex gap-2 text-[10px] text-slate-500 font-mono">
+                                    <span>Clinis App: (BH: {item.appBh}, ND: {item.appNd})</span>
+                                    <span>•</span>
+                                    <span>Google Sheet cũ: (BH: {item.sheetBh}, ND: {item.sheetNd})</span>
+                                  </div>
+                                </div>
+                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                  {item.status === 'dong_bo_moi' && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9.5px] bg-emerald-100 dark:bg-emerald-950/50 text-emerald-850 dark:text-emerald-400 font-black font-sans uppercase">
+                                      🟢 ĐỒNG BỘ MỚI
+                                    </span>
+                                  )}
+                                  {item.status === 'giu_nguyen' && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9.5px] bg-sky-100 dark:bg-sky-950/50 text-sky-850 dark:text-sky-400 font-black font-sans uppercase">
+                                      🔵 GIỮ NGUYÊN
+                                    </span>
+                                  )}
+                                  {item.status === 'ghi_de' && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9.5px] bg-amber-100 dark:bg-amber-950/50 text-amber-850 dark:text-amber-400 font-black font-sans uppercase">
+                                      🟠 ĐH ĐÃ GHI ĐÈ
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">
+                                    Kết quả Sheet: (BH: {item.resolvedBh}, ND: {item.resolvedNd})
+                                  </span>
+                                </div>
+                              </div>
+                            ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 2. Multi-day (Week/Month) Details */}
+                  {(sheetsSyncMessage.syncType === 'week' || sheetsSyncMessage.syncType === 'month') && (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2 text-center">
+                        <div className="p-2 bg-emerald-50 dark:bg-emerald-950/10 border border-emerald-100 dark:border-emerald-950/50 rounded">
+                          <span className="text-emerald-800 dark:text-emerald-400 font-black block text-sm">{sheetsSyncMessage.details.syncedDays?.length || 0}</span>
+                          <span className="text-[10px] text-slate-500 font-bold">Ngày đã đồng bộ</span>
+                        </div>
+                        <div className="p-2 bg-amber-50 dark:bg-amber-950/10 border border-amber-100 dark:border-amber-950/50 rounded">
+                          <span className="text-amber-800 dark:text-amber-400 font-black block text-sm">{sheetsSyncMessage.details.unsyncedDays?.length || 0}</span>
+                          <span className="text-[10px] text-slate-500 font-bold">Ngày bỏ qua/chưa duyệt</span>
+                        </div>
+                      </div>
+
+                      <div className="max-h-52 overflow-y-auto border border-slate-150 dark:border-slate-800/85 rounded divide-y divide-slate-100 dark:divide-slate-850 text-[11px] bg-white dark:bg-slate-950">
+                        {sheetsSyncMessage.details.syncedDays?.map(day => (
+                          <div key={day} className="p-2 flex items-center justify-between gap-1.5">
+                            <span className="font-bold text-slate-700 dark:text-slate-300 font-mono">{day}</span>
+                            <span className="px-1.5 py-0.5 rounded text-[9.5px] bg-emerald-50 text-emerald-750 dark:bg-emerald-950/30 dark:text-emerald-400 font-bold">
+                              ✓ Đã đồng bộ thành công
+                            </span>
+                          </div>
+                        ))}
+                        {sheetsSyncMessage.details.unsyncedDays?.map(item => (
+                          <div key={item.date} className="p-2 flex items-start justify-between gap-1.5">
+                            <span className="font-bold text-slate-500 font-mono">{item.date}</span>
+                            <span className="text-amber-700 dark:text-amber-450 text-[10px] text-right font-medium">
+                              ⚠️ Bỏ qua ({item.reason})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3. Large Sync Details (Year/All) */}
+                  {(sheetsSyncMessage.syncType === 'year' || sheetsSyncMessage.syncType === 'all') && sheetsSyncMessage.details.largeSync && (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2 text-center">
+                        <div className="p-2 bg-emerald-50 dark:bg-emerald-950/10 border border-emerald-100 dark:border-emerald-950/50 rounded">
+                          <span className="text-emerald-800 dark:text-emerald-400 font-black block text-sm">{sheetsSyncMessage.details.largeSync.syncedCount}</span>
+                          <span className="text-[10px] text-slate-500 font-bold">Số ngày đã đồng bộ</span>
+                        </div>
+                        <div className="p-2 bg-rose-50 dark:bg-rose-950/10 border border-rose-100 dark:border-rose-950/50 rounded">
+                          <span className="text-rose-800 dark:text-rose-450 font-black block text-sm">{sheetsSyncMessage.details.largeSync.unsyncedCount}</span>
+                          <span className="text-[10px] text-slate-500 font-bold">Số ngày chưa đồng bộ</span>
+                        </div>
+                      </div>
+
+                      <div className="p-2 bg-slate-100 dark:bg-slate-850 rounded text-[10.5px] text-slate-650 dark:text-slate-400 space-y-1">
+                        <p className="font-bold text-slate-700 dark:text-slate-300">Lý do số ngày chưa đồng bộ:</p>
+                        {sheetsSyncMessage.details.largeSync.reasons.map((r, i) => (
+                          <div key={i} className="flex justify-between">
+                            <span>• {r.reason}:</span>
+                            <span className="font-bold font-mono">{r.count} ngày</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

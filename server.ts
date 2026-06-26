@@ -2213,7 +2213,7 @@ app.post("/api/sheets/sync", async (req, res) => {
       } catch (e) {
         metaErrData = { error: { message: `HTTP status text: ${metaResponse.statusText}` } };
       }
-      console.warn("Google Sheets Metadata API Sync Warning:", JSON.stringify(metaErrData));
+      console.log("[Sheets API Sync Info] Metadata details fetched or failed:", JSON.stringify(metaErrData));
       const status = metaResponse.status;
       if (status === 401) {
         return res.status(401).json({
@@ -2248,24 +2248,20 @@ app.post("/api/sheets/sync", async (req, res) => {
     }));
     existingSheetTitles = sheetsList.map((s: any) => s.title);
   } catch (err: any) {
-    console.warn("Sheets Metadata Network Error Sync Details:", err?.message || err);
+    console.log("[Sheets Sync Network Info] Exception thrown during sync metadata fetch:", err?.message || err);
     return res.status(500).json({ error: "Không thể kết nối máy chủ Google API để xác thực quyền truy cập: " + (err.message || "") });
   }
 
   // Determine which reports to sync based on syncType
-  let reportsToSync: any[] = [];
+  let datesToSync: string[] = [];
   const typeOfSync = syncType || (syncAllMonth ? 'month' : 'day');
+  const isOverwrite = overwrite === true || overwrite === "true";
 
   if (typeOfSync === 'day') {
     if (!date) {
       return res.status(400).json({ error: "Thiếu ngày cần đồng bộ." });
     }
-    const report = reports.find(r => r.date === date && (r.status === "approved" || r.status === "submitted"));
-    if (report) {
-      reportsToSync = [report];
-    } else {
-      return res.status(404).json({ error: `Không tìm thấy báo cáo đã duyệt hoặc gửi cho ngày ${date}.` });
-    }
+    datesToSync = [date];
   } else if (typeOfSync === 'week') {
     if (!date) {
       return res.status(400).json({ error: "Thiếu ngày để xác định tuần cần đồng bộ." });
@@ -2276,25 +2272,53 @@ app.post("/api/sheets/sync", async (req, res) => {
     const monday = new Date(d);
     monday.setDate(d.getDate() + distanceToMonday);
 
-    const weekDates: string[] = [];
     for (let i = 0; i < 7; i++) {
       const dayDate = new Date(monday);
       dayDate.setDate(monday.getDate() + i);
       const y = dayDate.getFullYear();
       const m = String(dayDate.getMonth() + 1).padStart(2, '0');
       const dayNum = String(dayDate.getDate()).padStart(2, '0');
-      weekDates.push(`${y}-${m}-${dayNum}`);
+      datesToSync.push(`${y}-${m}-${dayNum}`);
     }
-
-    reportsToSync = reports.filter(r => weekDates.includes(r.date) && (r.status === "approved" || r.status === "submitted"));
   } else if (typeOfSync === 'month') {
-    const prefix = `${year}-${String(month).padStart(2, "0")}-`;
-    reportsToSync = reports.filter(r => r.date.startsWith(prefix) && (r.status === "approved" || r.status === "submitted"));
+    const yearNum = parseInt(year, 10);
+    const monthNum = parseInt(month, 10);
+    const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayStr = String(d).padStart(2, '0');
+      const monthStr = String(monthNum).padStart(2, '0');
+      datesToSync.push(`${yearNum}-${monthStr}-${dayStr}`);
+    }
   } else if (typeOfSync === 'year') {
-    const prefix = `${year}-`;
-    reportsToSync = reports.filter(r => r.date.startsWith(prefix) && (r.status === "approved" || r.status === "submitted"));
+    const yearNum = parseInt(year, 10);
+    for (let m = 1; m <= 12; m++) {
+      const daysInM = new Date(yearNum, m, 0).getDate();
+      for (let d = 1; d <= daysInM; d++) {
+        const dayStr = String(d).padStart(2, '0');
+        const monthStr = String(m).padStart(2, '0');
+        datesToSync.push(`${yearNum}-${monthStr}-${dayStr}`);
+      }
+    }
   } else if (typeOfSync === 'all') {
-    reportsToSync = reports.filter(r => (r.status === "approved" || r.status === "submitted"));
+    const allDates = Array.from(new Set(reports.map(r => r.date)));
+    datesToSync = allDates.sort();
+  }
+
+  let reportsToSync: any[] = [];
+  for (const dStr of datesToSync) {
+    const report = reports.find(r => r.date === dStr && (r.status === "approved" || r.status === "submitted"));
+    if (report) {
+      reportsToSync.push(report);
+    } else {
+      if (isOverwrite) {
+        reportsToSync.push({
+          date: dStr,
+          items: [],
+          status: "approved",
+          isMockEmpty: true
+        });
+      }
+    }
   }
 
   if (reportsToSync.length === 0) {
@@ -2362,11 +2386,11 @@ app.post("/api/sheets/sync", async (req, res) => {
           }
         } else {
           const createErr = await createResponse.json() as any;
-          console.warn("Failed to create sheet tab dynamically:", JSON.stringify(createErr));
+          console.log("[Sheets API Sync Info] Dynamic sheet tab creation response:", JSON.stringify(createErr));
           resolvedSheetName = sheetNameNormal; // Fallback
         }
       } catch (e: any) {
-        console.warn("Error dynamically adding sheet tab:", e?.message || e);
+        console.log("[Sheets API Sync Info] Exception in dynamic sheet tab add:", e?.message || e);
         resolvedSheetName = sheetNameNormal; // Fallback
       }
     }
@@ -2401,10 +2425,10 @@ app.post("/api/sheets/sync", async (req, res) => {
         });
         if (!updateResponse.ok) {
           const updateErr = await updateResponse.json() as any;
-          console.warn("Failed to expand sheet columns dynamically:", updateErr);
+          console.log("[Sheets API Sync Info] Dynamic column expansion response:", updateErr);
         }
       } catch (e: any) {
-        console.warn("Error expanding sheet columns:", e?.message || e);
+        console.log("[Sheets API Sync Info] Exception in sheet column expansion:", e?.message || e);
       }
     }
 
@@ -2431,10 +2455,102 @@ app.post("/api/sheets/sync", async (req, res) => {
   };
 
   const dataPayload: any[] = [];
+  const rowMetadata = [
+    { row: 7, id: 'sieuAm_tim', group: 'sieuAm' },
+    { row: 8, id: 'sieuAm_mach', group: 'sieuAm' },
+    { row: 9, id: 'sieuAm_thai4d', group: 'sieuAm' },
+    { row: 10, id: 'sieuAm_tongquat', group: 'sieuAm' },
+    { row: 11, id: 'sieuAm_danHoi', group: 'sieuAm' },
+    { row: 12, id: 'sieuAm_canThiep', group: 'sieuAm' },
+    { row: 13, id: null, type: 'sum', group: 'sieuAm' },
+    { row: 14, id: 'noiSoi_daDay', group: 'noiSoi' },
+    { row: 15, id: 'noiSoi_daiTrucTrang', group: 'noiSoi' },
+    { row: 16, id: 'noiSoi_trucTrang', group: 'noiSoi' },
+    { row: 17, id: 'noiSoi_sigma', group: 'noiSoi' },
+    { row: 18, id: 'noiSoi_thutThao', group: 'noiSoi' },
+    { row: 19, id: 'noiSoi_catPolyp', group: 'noiSoi' },
+    { row: 20, id: 'noiSoi_clotest', group: 'noiSoi' },
+    { row: 21, id: 'noiSoi_gayMeDaDayDaiTrang', group: 'noiSoi' },
+    { row: 22, id: 'noiSoi_gayMeDon', group: 'noiSoi' },
+    { row: 23, id: null, type: 'sum', group: 'noiSoi' },
+    { row: 24, id: 'xQuang_thuong', group: 'xQuang' },
+    { row: 25, id: 'xQuang_dacBiet', group: 'xQuang' },
+    { row: 26, id: 'xQuang_clvt', group: 'xQuang' },
+    { row: 27, id: null, type: 'sum', group: 'xQuang' },
+    { row: 28, id: 'dienTim_thuong', group: 'dienTim' },
+    { row: 29, id: 'dienTim_luuHuyetNao', group: 'dienTim' },
+    { row: 30, id: 'xetNghiem_sinhHoa', group: 'xetNghiem' },
+    { row: 31, id: 'xetNghiem_huyetHoc', group: 'xetNghiem' },
+    { row: 32, id: 'xetNghiem_nuocTieu', group: 'xetNghiem' },
+    { row: 33, id: 'xetNghiem_viSinh', group: 'xetNghiem' },
+    { row: 34, id: 'xetNghiem_mienDich', group: 'xetNghiem' },
+    { row: 35, id: 'xetNghiem_melatec', group: 'xetNghiem' },
+    { row: 36, id: 'xetNghiem_hopeHpv', group: 'xetNghiem' },
+    { row: 37, id: 'xetNghiem_hopePap', group: 'xetNghiem' },
+    { row: 38, id: 'xetNghiem_teBao', group: 'xetNghiem' },
+    { row: 39, id: 'xetNghiem_thinPrep', group: 'xetNghiem' },
+    { row: 40, id: null, type: 'sum', group: 'xetNghiem' },
+    { row: 41, id: null, type: 'grand_total' }
+  ];
+
+  // Construct target range strings for each report in reportsToSync
+  const rangesToGet = reportsToSync.map(rep => {
+    const parts = rep.date.split("-");
+    const repYear = parts[0];
+    const repMonth = parseInt(parts[1], 10);
+    const day = parseInt(parts[2], 10);
+    const ymKey = `${repYear}-${repMonth}`;
+    const sheetName = resolvedSheetNamesMap[ymKey] || `Tháng ${repMonth}`;
+    const colBhLetter = getColLetter(day * 2);
+    const colNdLetter = getColLetter(day * 2 + 1);
+    return `'${sheetName}'!${colBhLetter}7:${colNdLetter}41`;
+  });
+
+  const currentSheetDataMap: { [range: string]: any[][] } = {};
+
+  // Always fetch current values to compare or preserve, but skip for extremely large ranges (Year/All) in overwrite mode to maximize performance
+  const shouldFetchCurrentValues = !isOverwrite || (rangesToGet.length <= 31);
+
+  if (shouldFetchCurrentValues) {
+    try {
+      console.log("Fetching current Google Sheets cells to compare/preserve existing non-zero services...");
+      const chunkSize = 40;
+      for (let i = 0; i < rangesToGet.length; i += chunkSize) {
+        const chunk = rangesToGet.slice(i, i + chunkSize);
+        const queryParams = chunk.map(r => `ranges=${encodeURIComponent(r)}`).join("&");
+        const batchGetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?${queryParams}`;
+        const getResponse = await fetch(batchGetUrl, {
+          headers: {
+            "Authorization": `Bearer ${cleanToken}`
+          }
+        });
+        if (getResponse.ok) {
+          const resData = await getResponse.json() as any;
+          if (resData.valueRanges) {
+            resData.valueRanges.forEach((vr: any, index: number) => {
+              const targetRange = chunk[index];
+              if (targetRange) {
+                currentSheetDataMap[targetRange] = vr.values || [];
+              }
+            });
+          }
+        } else {
+          console.log("[Sheets API Sync Info] Google Sheets batchGet response:", getResponse.status, await getResponse.text());
+        }
+      }
+    } catch (err) {
+      console.log("[Sheets API Sync Info] Exception during Google Sheets batchGet:", err);
+    }
+  }
+
+  // To collect details for single-day sync
+  let singleDayLogs: any[] = [];
 
   // Synchronize each report's columns
-  for (const rep of reportsToSync) {
-    // Extract day of month
+  for (let repIndex = 0; repIndex < reportsToSync.length; repIndex++) {
+    const rep = reportsToSync[repIndex];
+    const range = rangesToGet[repIndex];
+
     const parts = rep.date.split("-");
     if (parts.length < 3) continue;
     const repYear = parts[0];
@@ -2445,112 +2561,266 @@ app.post("/api/sheets/sync", async (req, res) => {
     const ymKey = `${repYear}-${repMonth}`;
     const sheetName = resolvedSheetNamesMap[ymKey] || `Tháng ${repMonth}`;
 
-    // Calculate column indexes: Day 1 maps to column index 2 (C) and 3 (D)
-    const colBhIdx = day * 2;
-    const colNdIdx = day * 2 + 1;
+    const colBhLetter = getColLetter(day * 2);
+    const colNdLetter = getColLetter(day * 2 + 1);
 
-    const colBhLetter = getColLetter(colBhIdx);
-    const colNdLetter = getColLetter(colNdIdx);
+    const currentValues = currentSheetDataMap[range] || [];
 
-    // Build the 36 rows of values
-    const sheetRows: any[][] = [];
+    const mergedValues: { [id: string]: { bh: number; nd: number; status: string; appBh: number; appNd: number; sheetBh: number; sheetNd: number } } = {};
 
-    // Map each item category to lists for ease of summing
+    rowMetadata.forEach((meta, idx) => {
+      if (!meta.id) return; // Skip sum/grand_total rows for metadata loop
+
+      const appItem = rep.items.find((it: any) => it.id === meta.id);
+      const appBh = appItem ? Number(appItem.bh || 0) : 0;
+      const appNd = appItem ? Number(appItem.nd || 0) : 0;
+      const appItemName = appItem?.name || meta.id;
+
+      // Extract existing sheet data
+      const sheetBhVal = currentValues[idx]?.[0];
+      const sheetNdVal = currentValues[idx]?.[1];
+      const sheetBh = (sheetBhVal !== undefined && sheetBhVal !== null && sheetBhVal !== "") ? Number(sheetBhVal) : 0;
+      const sheetNd = (sheetNdVal !== undefined && sheetNdVal !== null && sheetNdVal !== "") ? Number(sheetNdVal) : 0;
+
+      const hasSheetData = (sheetBh !== 0 || sheetNd !== 0);
+
+      let resolvedBh = 0;
+      let resolvedNd = 0;
+      let statusText = 'trong'; // default
+
+      if (isOverwrite) {
+        resolvedBh = appBh;
+        resolvedNd = appNd;
+        if (hasSheetData) {
+          statusText = 'ghi_de'; // Overwrote existing sheet data
+        } else if (appBh !== 0 || appNd !== 0) {
+          statusText = 'dong_bo_moi'; // Sync new data
+        } else {
+          statusText = 'trong';
+        }
+      } else {
+        if (hasSheetData) {
+          // Keep Sheet's existing data!
+          resolvedBh = sheetBh;
+          resolvedNd = sheetNd;
+          statusText = 'giu_nguyen'; // Preserved existing sheet data
+        } else {
+          // Copy from app
+          resolvedBh = appBh;
+          resolvedNd = appNd;
+          if (appBh !== 0 || appNd !== 0) {
+            statusText = 'dong_bo_moi';
+          } else {
+            statusText = 'trong';
+          }
+        }
+      }
+
+      mergedValues[meta.id] = {
+        bh: resolvedBh,
+        nd: resolvedNd,
+        status: statusText,
+        appBh,
+        appNd,
+        sheetBh,
+        sheetNd
+      };
+
+      if (typeOfSync === 'day') {
+        singleDayLogs.push({
+          id: meta.id,
+          name: appItemName,
+          status: statusText,
+          appBh,
+          appNd,
+          sheetBh,
+          sheetNd,
+          resolvedBh,
+          resolvedNd
+        });
+      }
+    });
+
+    // Compute SUM and Total values based on merged values
     const sieuAmVals: { bh: number; nd: number }[] = [];
     const noiSoiVals: { bh: number; nd: number }[] = [];
     const xQuangVals: { bh: number; nd: number }[] = [];
     const dienTimVals: { bh: number; nd: number }[] = [];
     const xetNghiemVals: { bh: number; nd: number }[] = [];
 
-    const getItemVal = (id: string, group: string) => {
-      const item = rep.items.find((it: any) => it.id === id);
-      const bh = item ? Number(item.bh || 0) : 0;
-      const nd = item ? Number(item.nd || 0) : 0;
-      
-      const record = { bh, nd };
-      if (group === "sieuAm") sieuAmVals.push(record);
-      else if (group === "noiSoi") noiSoiVals.push(record);
-      else if (group === "xQuang") xQuangVals.push(record);
-      else if (group === "dienTim") dienTimVals.push(record);
-      else if (group === "xetNghiem") xetNghiemVals.push(record);
+    rowMetadata.forEach(meta => {
+      if (!meta.id) return;
+      const val = mergedValues[meta.id];
+      if (!val) return;
+      if (meta.group === "sieuAm") sieuAmVals.push(val);
+      else if (meta.group === "noiSoi") noiSoiVals.push(val);
+      else if (meta.group === "xQuang") xQuangVals.push(val);
+      else if (meta.group === "dienTim") dienTimVals.push(val);
+      else if (meta.group === "xetNghiem") xetNghiemVals.push(val);
+    });
 
-      return [formatCellVal(bh), formatCellVal(nd)];
-    };
-
-    // Row 7 to 12
-    sheetRows.push(getItemVal('sieuAm_tim', 'sieuAm'));
-    sheetRows.push(getItemVal('sieuAm_mach', 'sieuAm'));
-    sheetRows.push(getItemVal('sieuAm_thai4d', 'sieuAm'));
-    sheetRows.push(getItemVal('sieuAm_tongquat', 'sieuAm'));
-    sheetRows.push(getItemVal('sieuAm_danHoi', 'sieuAm'));
-    sheetRows.push(getItemVal('sieuAm_canThiep', 'sieuAm'));
-
-    // Row 13 - Siêu âm SUM
     const sumSA_bh = sieuAmVals.reduce((acc, v) => acc + v.bh, 0);
     const sumSA_nd = sieuAmVals.reduce((acc, v) => acc + v.nd, 0);
-    sheetRows.push([formatCellVal(sumSA_bh), formatCellVal(sumSA_nd)]);
 
-    // Row 14 to 22
-    sheetRows.push(getItemVal('noiSoi_daDay', 'noiSoi'));
-    sheetRows.push(getItemVal('noiSoi_daiTrucTrang', 'noiSoi'));
-    sheetRows.push(getItemVal('noiSoi_trucTrang', 'noiSoi'));
-    sheetRows.push(getItemVal('noiSoi_sigma', 'noiSoi'));
-    sheetRows.push(getItemVal('noiSoi_thutThao', 'noiSoi'));
-    sheetRows.push(getItemVal('noiSoi_catPolyp', 'noiSoi'));
-    sheetRows.push(getItemVal('noiSoi_clotest', 'noiSoi'));
-    sheetRows.push(getItemVal('noiSoi_gayMeDaDayDaiTrang', 'noiSoi'));
-    sheetRows.push(getItemVal('noiSoi_gayMeDon', 'noiSoi'));
-
-    // Row 23 - Nội soi SUM
     const sumNS_bh = noiSoiVals.reduce((acc, v) => acc + v.bh, 0);
     const sumNS_nd = noiSoiVals.reduce((acc, v) => acc + v.nd, 0);
-    sheetRows.push([formatCellVal(sumNS_bh), formatCellVal(sumNS_nd)]);
 
-    // Row 24 to 26
-    sheetRows.push(getItemVal('xQuang_thuong', 'xQuang'));
-    sheetRows.push(getItemVal('xQuang_dacBiet', 'xQuang'));
-    sheetRows.push(getItemVal('xQuang_clvt', 'xQuang'));
-
-    // Row 27 - X-quang SUM
     const sumXQ_bh = xQuangVals.reduce((acc, v) => acc + v.bh, 0);
     const sumXQ_nd = xQuangVals.reduce((acc, v) => acc + v.nd, 0);
-    sheetRows.push([formatCellVal(sumXQ_bh), formatCellVal(sumXQ_nd)]);
-
-    // Row 28 to 29
-    sheetRows.push(getItemVal('dienTim_thuong', 'dienTim'));
-    sheetRows.push(getItemVal('dienTim_luuHuyetNao', 'dienTim'));
 
     const sumDT_bh = dienTimVals.reduce((acc, v) => acc + v.bh, 0);
     const sumDT_nd = dienTimVals.reduce((acc, v) => acc + v.nd, 0);
 
-    // Row 30 to 39
-    sheetRows.push(getItemVal('xetNghiem_sinhHoa', 'xetNghiem'));
-    sheetRows.push(getItemVal('xetNghiem_huyetHoc', 'xetNghiem'));
-    sheetRows.push(getItemVal('xetNghiem_nuocTieu', 'xetNghiem'));
-    sheetRows.push(getItemVal('xetNghiem_viSinh', 'xetNghiem'));
-    sheetRows.push(getItemVal('xetNghiem_mienDich', 'xetNghiem'));
-    sheetRows.push(getItemVal('xetNghiem_melatec', 'xetNghiem'));
-    sheetRows.push(getItemVal('xetNghiem_hopeHpv', 'xetNghiem'));
-    sheetRows.push(getItemVal('xetNghiem_hopePap', 'xetNghiem'));
-    sheetRows.push(getItemVal('xetNghiem_teBao', 'xetNghiem'));
-    sheetRows.push(getItemVal('xetNghiem_thinPrep', 'xetNghiem'));
-
-    // Row 40 - Xét nghiệm SUM
     const sumXN_bh = xetNghiemVals.reduce((acc, v) => acc + v.bh, 0);
     const sumXN_nd = xetNghiemVals.reduce((acc, v) => acc + v.nd, 0);
+
+    const total_bh = sumSA_bh + sumNS_bh + sumXQ_bh + sumDT_bh + sumXN_bh;
+    const total_nd = sumSA_nd + sumNS_nd + sumXQ_nd + sumDT_nd + sumXN_nd;
+
+    // Build the 35 rows of values
+    const sheetRows: any[][] = [];
+
+    // Row 7 to 12
+    sheetRows.push([formatCellVal(mergedValues['sieuAm_tim']?.bh), formatCellVal(mergedValues['sieuAm_tim']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['sieuAm_mach']?.bh), formatCellVal(mergedValues['sieuAm_mach']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['sieuAm_thai4d']?.bh), formatCellVal(mergedValues['sieuAm_thai4d']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['sieuAm_tongquat']?.bh), formatCellVal(mergedValues['sieuAm_tongquat']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['sieuAm_danHoi']?.bh), formatCellVal(mergedValues['sieuAm_danHoi']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['sieuAm_canThiep']?.bh), formatCellVal(mergedValues['sieuAm_canThiep']?.nd)]);
+
+    // Row 13 - Siêu âm SUM
+    sheetRows.push([formatCellVal(sumSA_bh), formatCellVal(sumSA_nd)]);
+
+    // Row 14 to 22
+    sheetRows.push([formatCellVal(mergedValues['noiSoi_daDay']?.bh), formatCellVal(mergedValues['noiSoi_daDay']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['noiSoi_daiTrucTrang']?.bh), formatCellVal(mergedValues['noiSoi_daiTrucTrang']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['noiSoi_trucTrang']?.bh), formatCellVal(mergedValues['noiSoi_trucTrang']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['noiSoi_sigma']?.bh), formatCellVal(mergedValues['noiSoi_sigma']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['noiSoi_thutThao']?.bh), formatCellVal(mergedValues['noiSoi_thutThao']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['noiSoi_catPolyp']?.bh), formatCellVal(mergedValues['noiSoi_catPolyp']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['noiSoi_clotest']?.bh), formatCellVal(mergedValues['noiSoi_clotest']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['noiSoi_gayMeDaDayDaiTrang']?.bh), formatCellVal(mergedValues['noiSoi_gayMeDaDayDaiTrang']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['noiSoi_gayMeDon']?.bh), formatCellVal(mergedValues['noiSoi_gayMeDon']?.nd)]);
+
+    // Row 23 - Nội soi SUM
+    sheetRows.push([formatCellVal(sumNS_bh), formatCellVal(sumNS_nd)]);
+
+    // Row 24 to 26
+    sheetRows.push([formatCellVal(mergedValues['xQuang_thuong']?.bh), formatCellVal(mergedValues['xQuang_thuong']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['xQuang_dacBiet']?.bh), formatCellVal(mergedValues['xQuang_dacBiet']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['xQuang_clvt']?.bh), formatCellVal(mergedValues['xQuang_clvt']?.nd)]);
+
+    // Row 27 - X-quang SUM
+    sheetRows.push([formatCellVal(sumXQ_bh), formatCellVal(sumXQ_nd)]);
+
+    // Row 28 to 29
+    sheetRows.push([formatCellVal(mergedValues['dienTim_thuong']?.bh), formatCellVal(mergedValues['dienTim_thuong']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['dienTim_luuHuyetNao']?.bh), formatCellVal(mergedValues['dienTim_luuHuyetNao']?.nd)]);
+
+    // Row 30 to 39
+    sheetRows.push([formatCellVal(mergedValues['xetNghiem_sinhHoa']?.bh), formatCellVal(mergedValues['xetNghiem_sinhHoa']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['xetNghiem_huyetHoc']?.bh), formatCellVal(mergedValues['xetNghiem_huyetHoc']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['xetNghiem_nuocTieu']?.bh), formatCellVal(mergedValues['xetNghiem_nuocTieu']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['xetNghiem_viSinh']?.bh), formatCellVal(mergedValues['xetNghiem_viSinh']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['xetNghiem_mienDich']?.bh), formatCellVal(mergedValues['xetNghiem_mienDich']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['xetNghiem_melatec']?.bh), formatCellVal(mergedValues['xetNghiem_melatec']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['xetNghiem_hopeHpv']?.bh), formatCellVal(mergedValues['xetNghiem_hopeHpv']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['xetNghiem_hopePap']?.bh), formatCellVal(mergedValues['xetNghiem_hopePap']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['xetNghiem_teBao']?.bh), formatCellVal(mergedValues['xetNghiem_teBao']?.nd)]);
+    sheetRows.push([formatCellVal(mergedValues['xetNghiem_thinPrep']?.bh), formatCellVal(mergedValues['xetNghiem_thinPrep']?.nd)]);
+
+    // Row 40 - Xét nghiệm SUM
     sheetRows.push([formatCellVal(sumXN_bh), formatCellVal(sumXN_nd)]);
 
     // Row 41 - GRAND TOTAL
-    const total_bh = sumSA_bh + sumNS_bh + sumXQ_bh + sumDT_bh + sumXN_bh;
-    const total_nd = sumSA_nd + sumNS_nd + sumXQ_nd + sumDT_nd + sumXN_nd;
     sheetRows.push([formatCellVal(total_bh), formatCellVal(total_nd)]);
 
-    // Construct Range
-    const range = `'${sheetName}'!${colBhLetter}7:${colNdLetter}41`;
     dataPayload.push({
       range,
       values: sheetRows
     });
+  }
+
+  // Build detailed statistics for multi-day
+  let syncedDays: string[] = [];
+  let unsyncedDays: { date: string; reason: string }[] = [];
+  let largeSyncSummary: any = null;
+
+  if (typeOfSync === 'week') {
+    const d = new Date(date);
+    const dayOfWeek = d.getDay();
+    const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + distanceToMonday);
+
+    const weekDates: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const dayDate = new Date(monday);
+      dayDate.setDate(monday.getDate() + i);
+      const y = dayDate.getFullYear();
+      const m = String(dayDate.getMonth() + 1).padStart(2, '0');
+      const dayNum = String(dayDate.getDate()).padStart(2, '0');
+      weekDates.push(`${y}-${m}-${dayNum}`);
+    }
+
+    weekDates.forEach(dStr => {
+      const rep = reportsToSync.find(r => r.date === dStr);
+      if (rep) {
+        syncedDays.push(dStr);
+      } else {
+        const anyRep = reports.find(r => r.date === dStr);
+        const reason = anyRep ? "Báo cáo chưa được duyệt" : "Không có dữ liệu báo cáo";
+        unsyncedDays.push({ date: dStr, reason });
+      }
+    });
+  } else if (typeOfSync === 'month') {
+    const yearNum = parseInt(year, 10);
+    const monthNum = parseInt(month, 10);
+    const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+    const monthDates: string[] = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayStr = String(d).padStart(2, '0');
+      const monthStr = String(monthNum).padStart(2, '0');
+      monthDates.push(`${yearNum}-${monthStr}-${dayStr}`);
+    }
+
+    monthDates.forEach(dStr => {
+      const rep = reportsToSync.find(r => r.date === dStr);
+      if (rep) {
+        syncedDays.push(dStr);
+      } else {
+        const anyRep = reports.find(r => r.date === dStr);
+        const reason = anyRep ? "Báo cáo chưa được duyệt" : "Không có dữ liệu báo cáo";
+        unsyncedDays.push({ date: dStr, reason });
+      }
+    });
+  } else if (typeOfSync === 'year') {
+    const yearNum = parseInt(year, 10);
+    const isLeap = (yearNum % 4 === 0 && yearNum % 100 !== 0) || (yearNum % 400 === 0);
+    const totalDaysInYear = isLeap ? 366 : 365;
+
+    const yearPrefix = `${year}-`;
+    const yearReports = reports.filter(r => r.date.startsWith(yearPrefix));
+    const draftCount = yearReports.filter(r => r.status === 'draft').length;
+    const missingCount = totalDaysInYear - yearReports.length;
+
+    largeSyncSummary = {
+      syncedCount: reportsToSync.length,
+      unsyncedCount: totalDaysInYear - reportsToSync.length,
+      reasons: [
+        { reason: "Bản nháp (chưa được duyệt)", count: draftCount },
+        { reason: "Không có dữ liệu báo cáo", count: missingCount }
+      ]
+    };
+  } else if (typeOfSync === 'all') {
+    const draftCount = reports.filter(r => r.status === 'draft').length;
+    largeSyncSummary = {
+      syncedCount: reportsToSync.length,
+      unsyncedCount: draftCount,
+      reasons: [
+        { reason: "Bản nháp (chưa được duyệt)", count: draftCount }
+      ]
+    };
   }
 
   // Gửi yêu cầu lên Google Sheets API
@@ -2572,7 +2842,7 @@ app.post("/api/sheets/sync", async (req, res) => {
     const resultData = await response.json();
 
     if (!response.ok) {
-      console.warn("Google Sheets API Warning Response:", JSON.stringify(resultData));
+      console.log("[Sheets API Sync Info] Google Sheets API response status not ok:", JSON.stringify(resultData));
       const errMsg = resultData.error?.message || "Lỗi giao dịch với Google API.";
       return res.status(response.status).json({ 
         error: `Không thể cập nhật Google Sheets: ${errMsg}`,
@@ -2613,11 +2883,18 @@ app.post("/api/sheets/sync", async (req, res) => {
       success: true,
       message: successMsgText,
       updatedRangesCount: dataPayload.length,
-      details: resultData
+      syncType: typeOfSync,
+      overwrite: isOverwrite,
+      details: {
+        dayDetails: singleDayLogs,
+        syncedDays,
+        unsyncedDays,
+        largeSync: largeSyncSummary
+      }
     });
 
   } catch (err: any) {
-    console.warn("Sheets Network Error Warning:", err?.message || err);
+    console.log("[Sheets Sync Network Info] Exception in Sheets request:", err?.message || err);
     res.status(500).json({ 
       error: "Không thể kết nối đến máy chủ Google Sheets.", 
       details: err?.message || "" 
@@ -2671,7 +2948,7 @@ app.post("/api/sheets/pull", async (req, res) => {
       } catch (e) {
         metaErrData = { error: { message: `HTTP status text: ${metaResponse.statusText}` } };
       }
-      console.warn("Google Sheets Metadata API Pull Warning:", JSON.stringify(metaErrData));
+      console.log("[Sheets API Pull Info] Metadata details fetched or failed:", JSON.stringify(metaErrData));
       const status = metaResponse.status;
       if (status === 401) {
         return res.status(401).json({
@@ -2701,7 +2978,7 @@ app.post("/api/sheets/pull", async (req, res) => {
     }
     existingSheetTitles = (metaData.sheets || []).map((s: any) => s.properties?.title || "");
   } catch (err: any) {
-    console.warn("Sheets Metadata Network Error Pull Details:", err?.message || err);
+    console.log("[Sheets Pull Network Info] Exception thrown during pull metadata fetch:", err?.message || err);
     return res.status(500).json({ error: "Không thể kết nối máy chủ Google API để xác thực quyền truy cập: " + (err.message || "") });
   }
 
@@ -2807,7 +3084,7 @@ app.post("/api/sheets/pull", async (req, res) => {
 
     if (!valResponse.ok) {
       const valErrData = await valResponse.json() as any;
-      console.warn("Google Sheets Values API Warning:", JSON.stringify(valErrData));
+      console.log("[Sheets API Pull Info] Values read response not ok:", JSON.stringify(valErrData));
       return res.status(valResponse.status).json({
         error: `Không thể đọc dữ liệu từ Google Sheets: ${valErrData.error?.message || "Lỗi đọc dữ liệu"}`
       });
@@ -2816,7 +3093,7 @@ app.post("/api/sheets/pull", async (req, res) => {
     const valData = await valResponse.json() as any;
     valueRanges = valData.valueRanges || [];
   } catch (err: any) {
-    console.warn("Sheets Values Get Network Error Warning:", err?.message || err);
+    console.log("[Sheets Pull Network Info] Exception in Sheets value read:", err?.message || err);
     return res.status(500).json({ error: "Không thể kết nối máy chủ Google API để đọc dữ liệu: " + (err.message || "") });
   }
 
@@ -2916,12 +3193,13 @@ app.post("/api/sheets/pull", async (req, res) => {
 
       // Check if report already exists in database
       const existingIdx = reports.findIndex(r => r.date === targetDateStr);
+      const isOverwrite = overwrite === true || overwrite === "true";
 
       if (!hasData) {
         // If the sheet has no data for this day, but overwrite is true and the report already exists,
         // we should proceed to overwrite the existing report with 0/empty values.
         // Otherwise, skip it (no need to create a new empty report)
-        if (overwrite === true && existingIdx !== -1) {
+        if (isOverwrite && existingIdx !== -1) {
           // Proceed to update the existing report to all 0s
         } else {
           continue; 
@@ -2929,9 +3207,59 @@ app.post("/api/sheets/pull", async (req, res) => {
       }
 
       if (existingIdx !== -1) {
-        // Respect overwrite choice if false
-        if (overwrite === false) {
-          countSkipped++;
+        // Respect overwrite choice:
+        if (!isOverwrite) {
+          // Merge logic: synchronize all technical services from source to destination,
+          // bypassing those technical services where destination already has non-zero data (different from 0).
+          const existingReport = reports[existingIdx];
+          let mergedAny = false;
+          
+          // Deep copy existing items to prevent reference mutations
+          const mergedItems = (existingReport.items || []).map((item: any) => ({ ...item }));
+
+          for (const sourceItem of parsedItems) {
+            const destItemIdx = mergedItems.findIndex(di => di.id === sourceItem.id);
+            if (destItemIdx !== -1) {
+              const destItem = mergedItems[destItemIdx];
+              const currentBh = destItem.bh || 0;
+              const currentNd = destItem.nd || 0;
+              
+              // If destination has NO data (meaning both bh and nd are 0)
+              if (currentBh === 0 && currentNd === 0) {
+                const sourceBh = sourceItem.bh || 0;
+                const sourceNd = sourceItem.nd || 0;
+                
+                // If source has actual non-zero data to copy
+                if (sourceBh !== 0 || sourceNd !== 0) {
+                  mergedItems[destItemIdx] = {
+                    ...destItem,
+                    bh: sourceBh,
+                    nd: sourceNd
+                  };
+                  mergedAny = true;
+                }
+              }
+              // If destination has data (different from 0), we bypass/skip it!
+            } else {
+              // Service from source does not exist in destination, so we add it
+              mergedItems.push(sourceItem);
+              mergedAny = true;
+            }
+          }
+
+          if (mergedAny) {
+            reports[existingIdx] = {
+              ...existingReport,
+              items: mergedItems,
+              status: "approved",
+              approvedBy: activeUser || "Hệ thống (Google Sheets Pull - Trộn an toàn)",
+              submittedAt: new Date().toISOString()
+            };
+            saveDocument("reports", targetDateStr, reports[existingIdx]);
+            countUpdated++;
+          } else {
+            countSkipped++;
+          }
           continue; 
         }
 
@@ -3224,14 +3552,23 @@ async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?:
     // Set Referer and Origin to bypass restricted API key restrictions
     let referer = customReferer;
     if (!referer) {
-      referer = "https://ais-dev-zqq5pije5gh2vxz2hsbjqk-1022339198231.asia-southeast1.run.app/";
+      if (process.env.RENDER_EXTERNAL_URL) {
+        referer = process.env.RENDER_EXTERNAL_URL;
+      } else {
+        referer = "https://baocaogbcls.onrender.com/";
+      }
     }
+    
+    if (referer && !referer.endsWith("/")) {
+      referer += "/";
+    }
+
     headers["Referer"] = referer;
     try {
       const parsedUrl = new URL(referer);
       headers["Origin"] = parsedUrl.origin;
     } catch {
-      headers["Origin"] = "https://ais-dev-zqq5pije5gh2vxz2hsbjqk-1022339198231.asia-southeast1.run.app";
+      headers["Origin"] = "https://baocaogbcls.onrender.com";
     }
 
     const metaResponse = await fetch(metaUrl, { headers });
@@ -3344,34 +3681,110 @@ async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?:
 
     if (existingIdx !== -1) {
       if (!forceOverwrite) {
-        console.log(`[Auto-Sync] Báo cáo ngày ${targetDateStr} đã tồn tại trong hệ thống. Bỏ qua không ghi đè theo mặc định cấu hình an toàn.`);
+        // Merge logic: synchronize all technical services from source to destination,
+        // bypassing those technical services where destination already has non-zero data (different from 0).
+        const existingReport = reports[existingIdx];
+        let mergedAny = false;
         
-        // Add Audit Log
-        const logId = "log_auto_skip_" + Date.now();
-        const newLog = {
-          id: logId,
-          actor: "Hệ thống tự động",
-          action: "Đồng bộ tự động",
-          details: `Đồng bộ tự động ngày ${targetDateStr} được bỏ qua vì báo cáo đã tồn tại trong hệ thống (Mặc định bảo toàn dữ liệu).`,
-          timestamp: new Date().toISOString()
-        };
-        serverAuditLogs.unshift(newLog);
-        saveDocument("auditLogs", logId, newLog);
+        // Deep copy existing items to prevent reference mutations
+        const mergedItems = (existingReport.items || []).map((item: any) => ({ ...item }));
 
-        // Add Notification
-        const notifId = "notif_auto_skip_" + Date.now();
-        const newNotification = {
-          id: notifId,
-          title: "Đồng bộ tự động bỏ qua 🕒",
-          content: `Dữ liệu ngày ${targetDateStr} đã tồn tại trong hệ thống. Hệ thống đã tự động bỏ qua để tránh ghi đè dữ liệu cũ.`,
-          timestamp: new Date().toISOString(),
-          type: "warning",
-          read: false
-        };
-        notifications.push(newNotification);
-        saveDocument("notifications", notifId, newNotification);
+        for (const sourceItem of parsedItems) {
+          const destItemIdx = mergedItems.findIndex(di => di.id === sourceItem.id);
+          if (destItemIdx !== -1) {
+            const destItem = mergedItems[destItemIdx];
+            const currentBh = destItem.bh || 0;
+            const currentNd = destItem.nd || 0;
+            
+            // If destination has NO data (meaning both bh and nd are 0)
+            if (currentBh === 0 && currentNd === 0) {
+              const sourceBh = sourceItem.bh || 0;
+              const sourceNd = sourceItem.nd || 0;
+              
+              // If source has actual non-zero data to copy
+              if (sourceBh !== 0 || sourceNd !== 0) {
+                mergedItems[destItemIdx] = {
+                  ...destItem,
+                  bh: sourceBh,
+                  nd: sourceNd
+                };
+                mergedAny = true;
+              }
+            }
+            // If destination has data (different from 0), we bypass/skip it!
+          } else {
+            // Service from source does not exist in destination, so we add it
+            mergedItems.push(sourceItem);
+            mergedAny = true;
+          }
+        }
 
-        return { success: true, date: targetDateStr, skipped: true, reason: "Báo cáo đã tồn tại, mặc định chế độ an toàn không ghi đè." };
+        if (mergedAny) {
+          reports[existingIdx] = {
+            ...existingReport,
+            items: mergedItems,
+            status: "approved",
+            approvedBy: "Hệ thống (Đồng bộ Tự động 12h - Trộn an toàn)",
+            submittedAt: new Date().toISOString()
+          };
+          saveDocument("reports", targetDateStr, reports[existingIdx]);
+
+          // Add Audit Log for success merge
+          const logId = "log_auto_merge_" + Date.now();
+          const newLog = {
+            id: logId,
+            actor: "Hệ thống tự động",
+            action: "Đồng bộ tự động",
+            details: `Đồng bộ tự động ngày ${targetDateStr} đã bổ sung dữ liệu mới từ Google Sheets vào các ô trống mà không ghi đè dữ liệu cũ.`,
+            timestamp: new Date().toISOString()
+          };
+          serverAuditLogs.unshift(newLog);
+          saveDocument("auditLogs", logId, newLog);
+
+          // Add Notification for success merge
+          const notifId = "notif_auto_merge_" + Date.now();
+          const newNotification = {
+            id: notifId,
+            title: "Đồng bộ tự động bổ sung dữ liệu 🕒",
+            content: `Đã tự động bổ sung số liệu mới ngày ${targetDateStr} từ Google Sheets vào các phần chưa nhập của Clinis thành công.`,
+            timestamp: new Date().toISOString(),
+            type: "success",
+            read: false
+          };
+          notifications.push(newNotification);
+          saveDocument("notifications", notifId, newNotification);
+
+          return { success: true, date: targetDateStr, merged: true, details: "Đã tự động bổ sung số liệu vào các ô trống." };
+        } else {
+          console.log(`[Auto-Sync] Báo cáo ngày ${targetDateStr} đã tồn tại và không có dữ liệu mới để bổ sung. Bỏ qua.`);
+          
+          // Add Audit Log
+          const logId = "log_auto_skip_" + Date.now();
+          const newLog = {
+            id: logId,
+            actor: "Hệ thống tự động",
+            action: "Đồng bộ tự động",
+            details: `Đồng bộ tự động ngày ${targetDateStr} được bỏ qua vì báo cáo đã tồn tại trong hệ thống và không phát hiện số liệu mới.`,
+            timestamp: new Date().toISOString()
+          };
+          serverAuditLogs.unshift(newLog);
+          saveDocument("auditLogs", logId, newLog);
+
+          // Add Notification
+          const notifId = "notif_auto_skip_" + Date.now();
+          const newNotification = {
+            id: notifId,
+            title: "Đồng bộ tự động bỏ qua 🕒",
+            content: `Dữ liệu ngày ${targetDateStr} đã đầy đủ. Hệ thống tự động bỏ qua để bảo toàn dữ liệu cũ.`,
+            timestamp: new Date().toISOString(),
+            type: "warning",
+            read: false
+          };
+          notifications.push(newNotification);
+          saveDocument("notifications", notifId, newNotification);
+
+          return { success: true, date: targetDateStr, skipped: true, reason: "Báo cáo đã đầy đủ, bỏ qua theo cấu hình an toàn." };
+        }
       }
 
       reports[existingIdx] = {
@@ -3465,7 +3878,14 @@ async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?:
 app.post("/api/sheets/auto-sync-test", async (req, res) => {
   const { date, overwrite } = req.body;
   const forceOverwrite = overwrite === true || overwrite === "true";
-  const referer = (req.headers.referer || req.headers.origin) as string | undefined;
+  let referer = (req.headers.referer || req.headers.origin) as string | undefined;
+  if (!referer) {
+    const host = req.get("host");
+    if (host) {
+      const protocol = (host.includes("localhost") || host.includes("127.0.0.1") || host.includes("3000")) ? "http" : "https";
+      referer = `${protocol}://${host}/`;
+    }
+  }
   const result = await runAutomatedSyncAndReport(date, referer, forceOverwrite);
   // Always return 200 OK so client-side display can handle it gracefully as a valid response
   res.status(200).json(result);
@@ -3475,7 +3895,14 @@ app.post("/api/sheets/auto-sync-test", async (req, res) => {
 app.get("/api/sheets/auto-sync-cron", async (req, res) => {
   const { date, overwrite } = req.query;
   const forceOverwrite = String(overwrite) === "true";
-  const referer = (req.headers.referer || req.headers.origin) as string | undefined;
+  let referer = (req.headers.referer || req.headers.origin) as string | undefined;
+  if (!referer) {
+    const host = req.get("host");
+    if (host) {
+      const protocol = (host.includes("localhost") || host.includes("127.0.0.1") || host.includes("3000")) ? "http" : "https";
+      referer = `${protocol}://${host}/`;
+    }
+  }
   const result = await runAutomatedSyncAndReport(date as string | undefined, referer, forceOverwrite);
   // Always return 200 OK so that external cron-job.org scheduler doesn't disable the cron job due to temporary API failures or configuration issues
   res.status(200).json(result);
