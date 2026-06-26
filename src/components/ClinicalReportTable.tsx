@@ -43,7 +43,6 @@ export default function ClinicalReportTable({
   const [googleClientId, setGoogleClientId] = useState(() => localStorage.getItem('google_client_id') || '1067215171120-g7a7fge4vbe050m3oabm896v1k6g6m2f.apps.googleusercontent.com');
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
   const [isPullingSheets, setIsPullingSheets] = useState(false);
-  const [showSheetsConfig, setShowSheetsConfig] = useState(false);
   const [sheetsSyncMessage, setSheetsSyncMessage] = useState<{ 
     type: 'success' | 'error'; 
     text: string;
@@ -85,30 +84,43 @@ export default function ClinicalReportTable({
   }, [activeDate]);
 
   useEffect(() => {
-    // Parse Google OAuth access token from window.location.hash
-    if (window.location.hash) {
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
-      const token = params.get('access_token');
-      if (token) {
-        setGoogleAccessToken(token);
-        localStorage.setItem('google_access_token', token);
-        setShowSheetsConfig(true);
-        // Clear hash from address bar
-        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    // Read the latest token in case it was updated on reload/oauth
+    const latestToken = localStorage.getItem('google_access_token') || '';
+    if (latestToken) {
+      setGoogleAccessToken(latestToken);
+    }
+    const latestClientId = localStorage.getItem('google_client_id') || '';
+    if (latestClientId) {
+      setGoogleClientId(latestClientId);
+    }
+
+    // Check if we have been instructed to open sheets modal
+    const shouldOpen = localStorage.getItem('oauth_open_sheets_modal') === 'true';
+    if (shouldOpen) {
+      localStorage.removeItem('oauth_open_sheets_modal');
+      setIsGoogleSyncModalOpen(true);
+      
+      const reportSuccess = localStorage.getItem('oauth_report_success') === 'true';
+      if (reportSuccess) {
+        localStorage.removeItem('oauth_report_success');
         setSheetsSyncMessage({ type: 'success', text: 'Kết nối tài khoản Google thành công! Bạn có thể thực hiện đồng bộ ngay.' });
       }
     }
   }, []);
 
   const handleGoogleConnect = () => {
-    if (!googleClientId.trim()) {
-      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng cung cấp Google OAuth Client ID trong phần cấu hình nâng cao.' });
+    const freshClientId = localStorage.getItem('google_client_id') || googleClientId;
+    if (!freshClientId || !freshClientId.trim()) {
+      setSheetsSyncMessage({ type: 'error', text: 'Vui lòng cung cấp Google OAuth Client ID trong phần cấu hình nâng cao hoặc cài đặt Admin.' });
       return;
     }
+    // Save current state to restore after redirect
+    localStorage.setItem('oauth_restore_tab', 'report');
+    localStorage.setItem('oauth_open_sheets_modal', 'true');
+
     const redirectUri = window.location.href.split('#')[0]; // Current page minus hash
     const scope = 'https://www.googleapis.com/auth/spreadsheets';
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleClientId.trim()}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scope)}`;
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${freshClientId.trim()}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scope)}`;
     
     window.location.href = authUrl;
   };
@@ -1442,31 +1454,42 @@ export default function ClinicalReportTable({
 
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2.5 text-left">
                   <span className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-                </svg>
-              </span>
-              <div>
-                <h3 className="font-extrabold text-slate-850 dark:text-white text-xs md:text-sm tracking-tight flex items-center gap-2">
-                  Tích hợp Google Sheets nâng cao 📊
-                  {googleAccessToken ? (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-2 py-0.5 rounded-full font-black font-sans">
-                      ● Đã kết nối
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold">
-                      ○ Chưa kết nối
-                    </span>
-                  )}
-                </h3>
-                <p className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold uppercase tracking-wider">
-                  Đồng bộ hai chiều dữ liệu Clinis (BH & ND) giữa ứng dụng và Google Sheets
-                </p>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <h3 className="font-extrabold text-slate-850 dark:text-white text-xs md:text-sm tracking-tight flex items-center gap-2">
+                      Tích hợp Google Sheets nâng cao 📊
+                      {googleAccessToken ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-2 py-0.5 rounded-full font-black font-sans">
+                          ● Đã kết nối
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold">
+                          ○ Chưa kết nối
+                        </span>
+                      )}
+                    </h3>
+                    <p className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold uppercase tracking-wider">
+                      Đồng bộ hai chiều dữ liệu Clinis (BH & ND) giữa ứng dụng và Google Sheets
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+
+              {!googleAccessToken && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg space-y-1.5 text-left">
+                  <span className="text-[11px] font-black text-amber-800 dark:text-amber-400 block flex items-center gap-1.5 font-sans">
+                    ⚠️ CHƯA KẾT NỐI TÀI KHOẢN GOOGLE:
+                  </span>
+                  <p className="text-[10.5px] text-slate-650 dark:text-slate-400 font-semibold leading-relaxed">
+                    Bạn chưa thực hiện liên kết Google Account để đồng bộ. Vui lòng chuyển sang mục <strong className="text-amber-800 dark:text-amber-300">Quản trị hệ thống &gt; Đồng bộ Google Sheets</strong> để thiết lập và kết nối tài khoản trước khi thực hiện đồng bộ.
+                  </p>
+                </div>
+              )}
 
           {/* Main Action Type Selection: Push vs Pull */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
@@ -1700,7 +1723,23 @@ export default function ClinicalReportTable({
             </div>
 
             {/* 3. Global Trigger Exec Button */}
-            <div className="pt-2.5 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+              <button
+                type="button"
+                onClick={handleGoogleConnect}
+                className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-800 dark:text-slate-100 font-extrabold text-xs shadow-3xs transition duration-150 cursor-pointer select-none border border-slate-200 dark:border-slate-800 h-10"
+              >
+                <div className="w-3.5 h-3.5 bg-white rounded-full flex items-center justify-center p-0.5 shrink-0 border border-slate-200/50 dark:border-transparent">
+                  <svg viewBox="0 0 48 48" className="w-full h-full">
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                  </svg>
+                </div>
+                Kết nối Google Account ➔
+              </button>
+
               <button
                 type="button"
                 disabled={isSyncingSheets || isPullingSheets}
@@ -1711,7 +1750,7 @@ export default function ClinicalReportTable({
                     handlePullFromSheets(syncTimeRange, syncOverwrite);
                   }
                 }}
-                className={`w-full sm:w-auto px-6 py-2.5 rounded-lg text-xs font-black shadow-3xs cursor-pointer select-none transition flex items-center justify-center gap-2 hover:brightness-105 disabled:opacity-50 text-white ${
+                className={`w-full px-4 py-2.5 rounded-lg text-xs font-extrabold shadow-3xs cursor-pointer select-none transition flex items-center justify-center gap-2 hover:brightness-105 disabled:opacity-50 text-white h-10 ${
                   syncDirection === 'push'
                     ? 'bg-indigo-600 dark:bg-indigo-700 hover:bg-indigo-700'
                     : 'bg-emerald-600 dark:bg-emerald-700 hover:bg-emerald-700'
@@ -1886,117 +1925,6 @@ export default function ClinicalReportTable({
                   )}
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Advanced Credentials Config Drawer */}
-          {showSheetsConfig && (
-            <div className="border-t border-slate-200 dark:border-slate-800 pt-3.5 space-y-4 animate-slide-in">
-              {/* Explanation of 403 Error */}
-              <div className="p-3 bg-amber-50/50 dark:bg-amber-950/10 border border-amber-200/50 rounded-lg space-y-2">
-                <span className="text-[11px] font-black text-amber-800 dark:text-amber-400 block flex items-center gap-1.5 font-sans">
-                  ⚠️ GIẢI THÍCH LỖI 403 "DO NOT HAVE ACCESS TO THIS DOC/PAGE":
-                </span>
-                <p className="text-[10.5px] text-slate-650 dark:text-slate-450 leading-relaxed font-semibold">
-                  Mã kết nối (Client ID) mặc định thuộc Google Cloud của môi trường phát triển đang đặt ở trạng thái <strong className="text-amber-800 dark:text-amber-300">Thử nghiệm (Testing)</strong>. Google chỉ cho phép những tài khoản email được khai báo thủ công truy cập. Do đó khi nhấn nút kết nối, tài khoản của bạn sẽ báo lỗi 403.
-                </p>
-                <div className="pt-1 text-[10.5px] text-slate-650 dark:text-slate-450 leading-relaxed space-y-1">
-                  <p className="font-extrabold text-slate-800 dark:text-slate-350">Hãy lựa chọn một trong 2 giải pháp cực kỳ đơn giản dưới đây để đồng bộ ngay:</p>
-                </div>
-              </div>
-
-              {/* Sol 1: OAuth Playground */}
-              <div className="p-3.5 bg-indigo-50/30 dark:bg-slate-900 border border-indigo-100 dark:border-slate-800 rounded-lg space-y-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 font-black text-[10px] text-indigo-700 dark:text-indigo-400 mb-1.5 uppercase font-sans">
-                      Cách 1: Lấy token qua OAuth Playground (Khuyên dùng)
-                    </span>
-                    <h4 className="font-extrabold text-slate-800 dark:text-white text-xs">Không cần cấu hình, hoạt động tức thì với tài khoản bất kỳ</h4>
-                  </div>
-                  <a 
-                    href="https://developers.google.com/oauthplayground" 
-                    target="_blank" 
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] text-indigo-650 dark:text-indigo-400 hover:underline font-black hover:scale-105 transition"
-                  >
-                    Mở OAuth Playground 🚀
-                  </a>
-                </div>
-                
-                <ol className="list-decimal list-inside text-[10.5px] text-slate-600 dark:text-slate-400 space-y-1.5 leading-relaxed font-medium">
-                  <li>Truy cập liên kết <strong className="text-indigo-600 dark:text-indigo-400">OAuth Playground</strong> bên phải.</li>
-                  <li>Tại danh sách API bên trái (Step 1), tìm và mở rộng mục <strong className="text-slate-800 dark:text-slate-300">Google Sheets API v4</strong>.</li>
-                  <li>Tích chọn link scope: <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[10px]">https://www.googleapis.com/auth/spreadsheets</code> rồi click <strong className="text-slate-850 dark:text-slate-200">Authorize APIs</strong>.</li>
-                  <li>Đăng nhập bằng Gmail của bạn, cho phép ứng dụng truy cập.</li>
-                  <li>Ở Step 2, nhấp chuột vào nút màu xanh <strong className="text-emerald-700 dark:text-emerald-400 font-bold">"Exchange authorization code for tokens"</strong>.</li>
-                  <li>Sao chép toàn bộ dòng chữ dài trong ô <strong className="text-indigo-600 dark:text-indigo-400 font-extrabold">"Access Token"</strong> dán trực tiếp vào ô bên dưới.</li>
-                </ol>
-
-                <div className="space-y-1.5 pt-2">
-                  <label className="text-[9.5px] font-black text-slate-500 uppercase tracking-widest block">Google Access Token (Dán tại đây):</label>
-                  <textarea 
-                    rows={2}
-                    value={googleAccessToken}
-                    onChange={(e) => {
-                      setGoogleAccessToken(e.target.value);
-                      localStorage.setItem('google_access_token', e.target.value);
-                    }}
-                    placeholder="Dán mã Access Token lấy từ OAuth Playground bắt đầu bằng ya29... tại đây"
-                    className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-930 text-slate-800 dark:text-slate-200 placeholder-slate-400 p-2.5 focus:outline-hidden focus:ring-1 focus:ring-indigo-505 leading-relaxed shadow-xs"
-                  />
-                </div>
-              </div>
-
-              {/* Sol 2: Custom Client ID */}
-              <div className="p-3.5 bg-slate-100/50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg space-y-3">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 font-black text-[10px] text-slate-700 dark:text-slate-400 uppercase font-sans">
-                  Cách 2: Sử dụng Google Client ID cá nhân
-                </span>
-                <p className="text-[10.5px] text-slate-600 dark:text-slate-400 leading-relaxed font-semibold">
-                  Tạo mã kết nối riêng của bạn để nút <strong className="text-slate-800 dark:text-slate-200 font-black">Kết nối Google Account</strong> hoạt động trực tiếp.
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pb-2">
-                  <div className="md:col-span-8 space-y-1.5">
-                    <label className="text-[9.5px] font-black text-slate-500 uppercase tracking-widest block">Nhập mã Client ID Google của bạn:</label>
-                    <input 
-                      type="text"
-                      value={googleClientId}
-                      onChange={(e) => {
-                        setGoogleClientId(e.target.value);
-                        localStorage.setItem('google_client_id', e.target.value);
-                      }}
-                      placeholder="Nhập mã Client ID (dòng dài kết thúc bằng .apps.googleusercontent.com)"
-                      className="w-full text-xs font-mono border border-slate-250 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-930 text-slate-800 dark:text-slate-200 placeholder-slate-400 px-3 py-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-505 shadow-xs"
-                    />
-                  </div>
-                  <div className="md:col-span-4 self-end">
-                    <button
-                      type="button"
-                      onClick={handleGoogleConnect}
-                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-950 dark:bg-indigo-605 dark:hover:bg-indigo-750 text-white font-extrabold text-xs shadow-xs transition duration-150 cursor-pointer select-none"
-                    >
-                      <div className="w-3.5 h-3.5 bg-white rounded-full flex items-center justify-center p-0.5 shrink-0">
-                        <svg viewBox="0 0 48 48" className="w-full h-full">
-                          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                        </svg>
-                      </div>
-                      Kết nối Google Account ➔
-                    </button>
-                  </div>
-                </div>
-                <div className="text-[10px] text-slate-500 leading-relaxed space-y-1 font-medium bg-slate-50 dark:bg-slate-950/40 p-2.5 rounded-md border border-slate-200/50 dark:border-slate-800/50">
-                  <p className="font-extrabold text-slate-800 dark:text-slate-350">Các bước đăng ký Redirect URI trên Google Cloud Console:</p>
-                  <p>1. Tại Credentials, chọn Client ID vừa tạo hoặc tạo mới.</p>
-                  <p>2. Trong mục <strong className="text-slate-700 dark:text-slate-300">"Authorized redirect URIs"</strong>, nhấp chuột "Add URI" và thêm chính xác đường dẫn hiện tại của bạn:</p>
-                  <p className="font-mono bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-1.5 py-0.5 rounded text-[9.5px] select-all tracking-tight break-all inline-block font-black mt-1 text-indigo-600 dark:text-indigo-400">
-                    {window.location.origin}/
-                  </p>
-                </div>
-              </div>
             </div>
           )}
             </div>

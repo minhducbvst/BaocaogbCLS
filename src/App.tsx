@@ -265,6 +265,60 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Centralized Google OAuth parsing & Restore OAuth tab/subtab location across page reloads
+  useEffect(() => {
+    let hasParsedToken = false;
+    if (window.location.hash) {
+      const hash = window.location.hash.substring(1);
+      const params = new URLSearchParams(hash);
+      const token = params.get('access_token');
+      if (token) {
+        hasParsedToken = true;
+        // Save locally
+        localStorage.setItem('google_access_token', token);
+        
+        // Save to server
+        handleUpdateSettings({ googleAccessToken: token });
+
+        // Retrieve restore targets
+        const restoreTab = localStorage.getItem('oauth_restore_tab');
+        const restoreSubTab = localStorage.getItem('oauth_restore_subtab');
+        if (restoreTab) {
+          setActiveTab(restoreTab as any);
+          localStorage.removeItem('oauth_restore_tab');
+          
+          if (restoreTab === 'personnel') {
+            localStorage.setItem('oauth_personnel_success', 'true');
+          } else if (restoreTab === 'report') {
+            localStorage.setItem('oauth_open_sheets_modal', 'true');
+            localStorage.setItem('oauth_report_success', 'true');
+          }
+        }
+        if (restoreSubTab) {
+          setAdminSubTab(restoreSubTab as any);
+          localStorage.removeItem('oauth_restore_subtab');
+        }
+
+        // Clear hash from address bar
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+    }
+
+    if (!hasParsedToken) {
+      // Standard restore if we reload without a hash (e.g. error or manual navigation back)
+      const restoreTab = localStorage.getItem('oauth_restore_tab');
+      const restoreSubTab = localStorage.getItem('oauth_restore_subtab');
+      if (restoreTab) {
+        setActiveTab(restoreTab as any);
+        localStorage.removeItem('oauth_restore_tab');
+      }
+      if (restoreSubTab) {
+        setAdminSubTab(restoreSubTab as any);
+        localStorage.removeItem('oauth_restore_subtab');
+      }
+    }
+  }, []);
+
   // Sync administrative authentication state with sessionStorage
   useEffect(() => {
     sessionStorage.setItem('hospital-admin-authenticated', String(isAdminAuthenticated));

@@ -437,22 +437,14 @@ export default function PersonnelManager({
   }, [systemSettings]);
 
   useEffect(() => {
-    // Parse Google OAuth access token from window.location.hash
-    if (window.location.hash) {
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
-      const token = params.get('access_token');
-      if (token) {
-        setGoogleAccessToken(token);
-        localStorage.setItem('google_access_token', token);
-        onUpdateSettings?.({ googleAccessToken: token });
-        // Clear hash from address bar
-        window.history.replaceState(null, '', window.location.pathname + window.location.search);
-        setSuccessText('Kết nối tài khoản Google thành công! Cấu hình đã được lưu trữ.');
-        setTimeout(() => setSuccessText(null), 4000);
-      }
+    // Check if we have been instructed to show success text
+    const showSuccess = localStorage.getItem('oauth_personnel_success') === 'true';
+    if (showSuccess) {
+      localStorage.removeItem('oauth_personnel_success');
+      setSuccessText('Kết nối tài khoản Google thành công! Cấu hình đã được lưu trữ.');
+      setTimeout(() => setSuccessText(null), 5000);
     }
-  }, [onUpdateSettings]);
+  }, []);
 
   const handleGoogleConnect = () => {
     if (!googleClientId.trim()) {
@@ -460,6 +452,10 @@ export default function PersonnelManager({
       setTimeout(() => setErrorText(null), 4500);
       return;
     }
+    // Save current state to restore after redirect
+    localStorage.setItem('oauth_restore_tab', 'personnel');
+    localStorage.setItem('oauth_restore_subtab', 'googleSheets');
+
     const redirectUri = window.location.href.split('#')[0]; // Current page minus hash
     const scope = 'https://www.googleapis.com/auth/spreadsheets';
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleClientId.trim()}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scope)}`;
