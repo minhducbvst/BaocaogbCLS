@@ -35,6 +35,54 @@ import {
   Send
 } from 'lucide-react';
 
+const formatBirthDateToDDMMYYYY = (val: any): string | undefined => {
+  if (val === undefined || val === null) return undefined;
+
+  // 1. If it's a Date object
+  if (val instanceof Date) {
+    if (!isNaN(val.getTime())) {
+      // Shift forward 12 hours to handle Excel / JS Date conversion timezone drops
+      const shifted = new Date(val.getTime() + 12 * 60 * 60 * 1000);
+      const day = String(shifted.getDate()).padStart(2, '0');
+      const month = String(shifted.getMonth() + 1).padStart(2, '0');
+      const year = shifted.getFullYear();
+      return `${day}/${month}/${year}`;
+    }
+    return undefined;
+  }
+
+  const str = String(val).trim();
+  if (!str) return undefined;
+
+  // 2. If it's a 4-digit year, e.g. "1985"
+  if (/^\d{4}$/.test(str)) {
+    return `01/01/${str}`;
+  }
+
+  // 3. If it is already in DD/MM/YYYY or D/M/YYYY or DD-MM-YYYY etc.
+  const dmyMatch = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (dmyMatch) {
+    const day = dmyMatch[1].padStart(2, '0');
+    const month = dmyMatch[2].padStart(2, '0');
+    const year = dmyMatch[3];
+    return `${day}/${month}/${year}`;
+  }
+
+  // 4. Try parsing standard date string formats
+  if (!/^\d+$/.test(str)) {
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) {
+      const shifted = new Date(parsed.getTime() + 12 * 60 * 60 * 1000);
+      const day = String(shifted.getDate()).padStart(2, '0');
+      const month = String(shifted.getMonth() + 1).padStart(2, '0');
+      const year = shifted.getFullYear();
+      return `${day}/${month}/${year}`;
+    }
+  }
+
+  return str;
+};
+
 const getYearFromBirthDate = (birthDate?: string | number): number | undefined => {
   if (!birthDate) return undefined;
   if (typeof birthDate === 'number') return birthDate;
@@ -44,8 +92,23 @@ const getYearFromBirthDate = (birthDate?: string | number): number | undefined =
     const year = Number(parts[2]);
     if (!isNaN(year)) return year;
   }
+  const dashParts = str.split('-');
+  if (dashParts.length === 3) {
+    if (dashParts[0].length === 4) {
+      const year = Number(dashParts[0]);
+      if (!isNaN(year)) return year;
+    } else {
+      const year = Number(dashParts[2]);
+      if (!isNaN(year)) return year;
+    }
+  }
   const year = Number(str);
   if (!isNaN(year) && year > 1900 && year < 2100) return year;
+
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.getFullYear();
+  }
   return undefined;
 };
 
@@ -759,13 +822,8 @@ export default function PersonnelManager({
           const title = titleColIdx !== -1 && row[titleColIdx] ? String(row[titleColIdx]).trim() : 'Bác Sĩ Điều Trị';
           const gender = genderColIdx !== -1 && row[genderColIdx] ? String(row[genderColIdx]).trim() : 'Nam';
           let birthDate: string | undefined = undefined;
-          if (birthColIdx !== -1 && row[birthColIdx]) {
-            const rawBirthVal = String(row[birthColIdx]).trim();
-            if (/^\d{4}$/.test(rawBirthVal)) {
-              birthDate = `01/01/${rawBirthVal}`;
-            } else {
-              birthDate = rawBirthVal;
-            }
+          if (birthColIdx !== -1 && row[birthColIdx] !== undefined && row[birthColIdx] !== null) {
+            birthDate = formatBirthDateToDDMMYYYY(row[birthColIdx]);
           }
           const qualification = qualColIdx !== -1 && row[qualColIdx] ? String(row[qualColIdx]).trim() : 'Bác sĩ';
           const degree = degreeColIdx !== -1 && row[degreeColIdx] ? String(row[degreeColIdx]).trim() : 'ĐH';
@@ -1492,9 +1550,9 @@ export default function PersonnelManager({
               <form 
                 onSubmit={handleSaveStaff} 
                 onClick={(e) => e.stopPropagation()}
-                className="bg-white border border-slate-200 rounded-2xl p-6 space-y-5 shadow-2xl max-w-2xl w-full overflow-hidden animate-scale-up text-slate-800"
+                className="bg-white border border-slate-200 rounded-2xl p-6 shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-scale-up text-slate-800"
               >
-                <div className="flex items-center justify-between border-b border-slate-150 pb-3">
+                <div className="flex items-center justify-between border-b border-slate-150 pb-3 mb-4 flex-shrink-0">
                   <span className="text-sm font-black text-indigo-950 uppercase tracking-wider flex items-center gap-2">
                     <UserPlus className="w-5 h-5 text-indigo-600" />
                     {editingStaffId ? 'Cập nhật hồ sơ nhân sự' : 'Khai báo nhân sự trực mới'}
@@ -1508,7 +1566,8 @@ export default function PersonnelManager({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex-1 overflow-y-auto pr-1.5 space-y-4 min-h-0">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black uppercase text-slate-500 block">Học hàm & Họ tên:</label>
                     <input
@@ -1680,8 +1739,9 @@ export default function PersonnelManager({
                     />
                   </div>
                 </div>
+              </div>
 
-                <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-150">
+              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-150 mt-4 flex-shrink-0">
                   <button
                     type="button"
                     onClick={clearStaffForm}
@@ -2048,9 +2108,9 @@ export default function PersonnelManager({
               <form 
                 onSubmit={handleSaveDept} 
                 onClick={(e) => e.stopPropagation()}
-                className="bg-white border border-slate-200 rounded-2xl p-6 space-y-5 shadow-2xl max-w-2xl w-full overflow-hidden animate-scale-up text-slate-800"
+                className="bg-white border border-slate-200 rounded-2xl p-6 shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-scale-up text-slate-800"
               >
-                <div className="flex items-center justify-between border-b border-slate-150 pb-3">
+                <div className="flex items-center justify-between border-b border-slate-150 pb-3 mb-4 flex-shrink-0">
                   <span className="text-sm font-black text-indigo-950 uppercase tracking-wider flex items-center gap-2">
                     <Building2 className="w-5 h-5 text-emerald-600" />
                     {editingDeptId ? 'Cập nhật phân bộ / Khoa phòng' : 'Khai lập phân khoa chức năng mới'}
@@ -2064,7 +2124,8 @@ export default function PersonnelManager({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex-1 overflow-y-auto pr-1.5 space-y-4 min-h-0">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5 md:col-span-2">
                     <label className="text-[10px] font-black uppercase text-slate-500 block">Tên phân khoa / Phòng ban:</label>
                     <input
@@ -2136,8 +2197,9 @@ export default function PersonnelManager({
                     />
                   </div>
                 </div>
+              </div>
 
-                <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-150">
+              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-150 mt-4 flex-shrink-0">
                   <button
                     type="button"
                     onClick={clearDeptForm}
