@@ -769,7 +769,16 @@ export default function PersonnelManager({
           }
           const qualification = qualColIdx !== -1 && row[qualColIdx] ? String(row[qualColIdx]).trim() : 'Bác sĩ';
           const degree = degreeColIdx !== -1 && row[degreeColIdx] ? String(row[degreeColIdx]).trim() : 'ĐH';
-          const phone = phoneColIdx !== -1 && row[phoneColIdx] ? String(row[phoneColIdx]).trim() : '';
+          let phone = phoneColIdx !== -1 && row[phoneColIdx] ? String(row[phoneColIdx]).trim() : '';
+          if (phone.endsWith('.0')) {
+            phone = phone.substring(0, phone.length - 2);
+          }
+          const cleanPhone = phone.replace(/\D/g, '');
+          if (/^\d{9}$/.test(cleanPhone)) {
+            phone = '0' + cleanPhone;
+          } else if (cleanPhone) {
+            phone = cleanPhone;
+          }
           const address = addrColIdx !== -1 && row[addrColIdx] ? String(row[addrColIdx]).trim() : '';
           const notes = notesColIdx !== -1 && row[notesColIdx] ? String(row[notesColIdx]).trim() : '';
 
