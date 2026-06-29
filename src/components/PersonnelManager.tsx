@@ -80,6 +80,7 @@ interface PersonnelManagerProps {
   onRefresh?: () => void;
   systemSettings?: any; // SystemSettings
   onUpdateSettings?: (settings: any) => Promise<void>;
+  onPreviewSettings?: (settings: any | null) => void;
   procedures: any[];
   onAddProcedure: (proc: { name: string; category: string }) => Promise<void>;
   onDeleteProcedure: (id: string) => Promise<void>;
@@ -91,6 +92,7 @@ export default function PersonnelManager({
   onRefresh,
   systemSettings,
   onUpdateSettings,
+  onPreviewSettings,
   procedures,
   onAddProcedure,
   onDeleteProcedure
@@ -101,10 +103,43 @@ export default function PersonnelManager({
   
   const [activeSubTab, setActiveSubTab] = useState<'staff' | 'depts' | 'logs' | 'procedures' | 'printSettings' | 'themeSettings' | 'googleSheets'>(initialSubTab as any);
 
+  const [localSettings, setLocalSettings] = useState<any>(null);
+
   // Sync state if prop changes from parent dropdown triggers
   useEffect(() => {
     setActiveSubTab(initialSubTab);
   }, [initialSubTab]);
+
+  useEffect(() => {
+    if (systemSettings) {
+      setLocalSettings((prev: any) => {
+        if (!prev) return systemSettings;
+        return {
+          ...systemSettings,
+          systemTitle: prev.systemTitle !== undefined ? prev.systemTitle : systemSettings.systemTitle,
+          systemSubtitle: prev.systemSubtitle !== undefined ? prev.systemSubtitle : systemSettings.systemSubtitle,
+          themeColor: prev.themeColor !== undefined ? prev.themeColor : systemSettings.themeColor,
+          logoPreset: prev.logoPreset !== undefined ? prev.logoPreset : systemSettings.logoPreset,
+          logoUrl: prev.logoUrl !== undefined ? prev.logoUrl : systemSettings.logoUrl,
+          bannerPreset: prev.bannerPreset !== undefined ? prev.bannerPreset : systemSettings.bannerPreset,
+          bannerUrl: prev.bannerUrl !== undefined ? prev.bannerUrl : systemSettings.bannerUrl,
+          bgStyle: prev.bgStyle !== undefined ? prev.bgStyle : systemSettings.bgStyle,
+        };
+      });
+    }
+  }, [systemSettings]);
+
+  // Sync real-time live preview to main layout
+  useEffect(() => {
+    if (activeSubTab === 'themeSettings' && localSettings) {
+      onPreviewSettings?.(localSettings);
+    } else {
+      onPreviewSettings?.(null);
+    }
+    return () => {
+      onPreviewSettings?.(null);
+    };
+  }, [localSettings, activeSubTab, onPreviewSettings]);
 
   const [printSettings, setPrintSettings] = useState<PrintSettings>(() => {
     const saved = localStorage.getItem('print-settings');
@@ -174,6 +209,11 @@ export default function PersonnelManager({
 
         const data = await res.json();
         if (data.success && data.settings) {
+          setLocalSettings((prev: any) => ({
+            ...prev,
+            logoUrl: data.logoUrl,
+            logoPreset: 'custom'
+          }));
           await onUpdateSettings?.(data.settings);
           setLogoUploadSuccess(true);
           setTimeout(() => setLogoUploadSuccess(false), 3000);
@@ -238,6 +278,11 @@ export default function PersonnelManager({
 
         const data = await res.json();
         if (data.success && data.settings) {
+          setLocalSettings((prev: any) => ({
+            ...prev,
+            logoUrl: data.logoUrl,
+            logoPreset: 'custom'
+          }));
           await onUpdateSettings?.(data.settings);
           setLogoUploadSuccess(true);
           setTimeout(() => setLogoUploadSuccess(false), 3000);
@@ -290,6 +335,11 @@ export default function PersonnelManager({
 
         const data = await res.json();
         if (data.success && data.settings) {
+          setLocalSettings((prev: any) => ({
+            ...prev,
+            bannerUrl: data.bannerUrl,
+            bannerPreset: 'custom'
+          }));
           await onUpdateSettings?.(data.settings);
           setBannerUploadSuccess(true);
           setTimeout(() => setBannerUploadSuccess(false), 3000);
@@ -354,6 +404,11 @@ export default function PersonnelManager({
 
         const data = await res.json();
         if (data.success && data.settings) {
+          setLocalSettings((prev: any) => ({
+            ...prev,
+            bannerUrl: data.bannerUrl,
+            bannerPreset: 'custom'
+          }));
           await onUpdateSettings?.(data.settings);
           setBannerUploadSuccess(true);
           setTimeout(() => setBannerUploadSuccess(false), 3000);
@@ -2478,11 +2533,20 @@ export default function PersonnelManager({
       )}
 
       {/* SUB-TAB 5: SYSTEM THEME CUSTOMIZATION */}
-      {activeSubTab === 'themeSettings' && systemSettings && (
+      {activeSubTab === 'themeSettings' && localSettings && (
         <div className="space-y-6 animate-fade-in my-3">
-          <div className="bg-gradient-to-br from-rose-50/40 via-white to-pink-50/20 p-4 rounded-xl border border-rose-100/50 space-y-1.5 shadow-3xs">
-            <h4 className="text-xs font-black text-rose-800 flex items-center gap-1.5 uppercase tracking-wide">
-              <Sparkles className="w-4 h-4 text-rose-500 animate-pulse" />
+          <div 
+            className="p-4 rounded-xl border space-y-1.5 shadow-3xs transition-all duration-300"
+            style={{ 
+              backgroundColor: `${localSettings.themeColor}05`, 
+              borderColor: `${localSettings.themeColor}22` 
+            }}
+          >
+            <h4 
+              className="text-xs font-black flex items-center gap-1.5 uppercase tracking-wide"
+              style={{ color: localSettings.themeColor }}
+            >
+              <Sparkles className="w-4 h-4 animate-pulse" style={{ color: localSettings.themeColor }} />
               Tùy biến nhãn hiệu, màu sắc & phong cách hệ thống
             </h4>
             <p className="text-[11px] text-slate-550 leading-relaxed font-semibold">
@@ -2504,9 +2568,10 @@ export default function PersonnelManager({
                   <label className="text-[9.5px] font-extrabold text-slate-500 uppercase block">Tiêu đề chính hệ thống:</label>
                   <input
                     type="text"
-                    value={systemSettings.systemTitle || ''}
-                    onChange={(e) => onUpdateSettings?.({ systemTitle: e.target.value })}
-                    className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-2 hover:border-slate-305 transition focus:ring-1 focus:ring-rose-500 focus:outline-none"
+                    value={localSettings.systemTitle || ''}
+                    onChange={(e) => setLocalSettings((prev: any) => ({ ...prev, systemTitle: e.target.value }))}
+                    className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2.5 py-2 hover:border-slate-305 transition focus:ring-1 focus:outline-none"
+                    style={{ '--tw-ring-color': localSettings.themeColor } as React.CSSProperties}
                     placeholder="Giao Ban Khoa Cận Lâm Sàng"
                   />
                 </div>
@@ -2515,9 +2580,10 @@ export default function PersonnelManager({
                   <label className="text-[9.5px] font-extrabold text-slate-500 uppercase block">Phụ đề giới thiệu chi tiết:</label>
                   <textarea
                     rows={2}
-                    value={systemSettings.systemSubtitle || ''}
-                    onChange={(e) => onUpdateSettings?.({ systemSubtitle: e.target.value })}
-                    className="w-full text-[11px] bg-white border border-slate-200 rounded-lg px-2.5 py-2 font-medium hover:border-slate-305 transition focus:ring-1 focus:ring-rose-500 focus:outline-none leading-relaxed"
+                    value={localSettings.systemSubtitle || ''}
+                    onChange={(e) => setLocalSettings((prev: any) => ({ ...prev, systemSubtitle: e.target.value }))}
+                    className="w-full text-[11px] bg-white border border-slate-200 rounded-lg px-2.5 py-2 font-medium hover:border-slate-305 transition focus:ring-1 focus:outline-none leading-relaxed"
+                    style={{ '--tw-ring-color': localSettings.themeColor } as React.CSSProperties}
                     placeholder="Báo cáo số liệu và tự động hóa biên bản bằng AI..."
                   />
                 </div>
@@ -2534,10 +2600,11 @@ export default function PersonnelManager({
                       <button
                         key={logo.key}
                         type="button"
-                        onClick={() => onUpdateSettings?.({ logoPreset: logo.key })}
+                        onClick={() => setLocalSettings((prev: any) => ({ ...prev, logoPreset: logo.key }))}
+                        style={localSettings.logoPreset === logo.key ? { borderColor: localSettings.themeColor, color: localSettings.themeColor, boxShadow: `0 0 0 1px ${localSettings.themeColor}` } : {}}
                         className={`py-1.5 px-1 bg-white border rounded-lg text-center flex flex-col items-center justify-center transition cursor-pointer select-none ${
-                          systemSettings.logoPreset === logo.key
-                            ? 'border-rose-500 ring-1 ring-rose-500 text-rose-700 shadow-4xs font-bold'
+                          localSettings.logoPreset === logo.key
+                            ? 'font-bold shadow-4xs'
                             : 'border-slate-200 text-slate-600 hover:bg-slate-100'
                         }`}
                       >
@@ -2548,7 +2615,7 @@ export default function PersonnelManager({
                   </div>
                 </div>
 
-                {systemSettings.logoPreset === 'custom' && (
+                {localSettings.logoPreset === 'custom' && (
                   <div className="space-y-3 animate-fade-in border-t border-slate-200/50 pt-3">
                     <label className="text-[10px] font-extrabold text-slate-600 uppercase block">Logo tùy chỉnh:</label>
                     
@@ -2557,11 +2624,8 @@ export default function PersonnelManager({
                       onDragOver={handleLogoDragOver}
                       onDragLeave={handleLogoDragLeave}
                       onDrop={handleLogoDrop}
-                      className={`border-2 border-dashed rounded-xl p-4 text-center transition-all ${
-                        isDraggingLogo 
-                          ? 'border-rose-500 bg-rose-50/30 shadow-xs' 
-                          : 'border-slate-200 bg-white hover:border-slate-300'
-                      }`}
+                      className="border-2 border-dashed rounded-xl p-4 text-center transition-all bg-white hover:border-slate-300"
+                      style={{ borderColor: isDraggingLogo ? localSettings.themeColor : '#e2e8f0' }}
                     >
                       <input
                         type="file"
@@ -2576,11 +2640,11 @@ export default function PersonnelManager({
                         className="cursor-pointer flex flex-col items-center justify-center space-y-2 group"
                       >
                         {logoUploading ? (
-                          <div className="w-8 h-8 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
-                        ) : systemSettings.logoUrl ? (
+                          <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: localSettings.themeColor }} />
+                        ) : localSettings.logoUrl ? (
                           <div className="relative">
                             <img 
-                              src={systemSettings.logoUrl} 
+                              src={localSettings.logoUrl} 
                               alt="Custom Logo" 
                               className="max-h-16 max-w-full object-contain rounded border border-slate-100 shadow-2xs p-1"
                               referrerPolicy="no-referrer"
@@ -2590,7 +2654,7 @@ export default function PersonnelManager({
                             </div>
                           </div>
                         ) : (
-                          <UploadCloud className="w-8 h-8 text-slate-400 group-hover:text-rose-500 transition-colors" />
+                          <UploadCloud className="w-8 h-8 text-slate-400 group-hover:text-slate-600 transition-colors" />
                         )}
                         <div className="text-xs font-semibold text-slate-700">
                           {logoUploading 
@@ -2620,11 +2684,12 @@ export default function PersonnelManager({
                     <div className="space-y-1">
                       <div className="flex justify-between items-center">
                         <label className="text-[9px] font-extrabold text-slate-400 uppercase block">Hoặc đường dẫn logo URL:</label>
-                        {systemSettings.logoUrl && (
+                        {localSettings.logoUrl && (
                           <button
                             type="button"
-                            onClick={() => onUpdateSettings?.({ logoUrl: '' })}
-                            className="text-[9.5px] font-bold text-rose-600 hover:underline cursor-pointer"
+                            onClick={() => setLocalSettings((prev: any) => ({ ...prev, logoUrl: '' }))}
+                            className="text-[9.5px] font-bold hover:underline cursor-pointer"
+                            style={{ color: localSettings.themeColor }}
                           >
                             Xóa ảnh hiện tại
                           </button>
@@ -2632,9 +2697,10 @@ export default function PersonnelManager({
                       </div>
                       <input
                         type="text"
-                        value={systemSettings.logoUrl || ''}
-                        onChange={(e) => onUpdateSettings?.({ logoUrl: e.target.value })}
-                        className="w-full text-xs font-mono bg-white border border-slate-200 rounded-lg px-2.5 py-2 hover:border-slate-305 transition focus:ring-1 focus:ring-rose-500 focus:outline-none"
+                        value={localSettings.logoUrl || ''}
+                        onChange={(e) => setLocalSettings((prev: any) => ({ ...prev, logoUrl: e.target.value }))}
+                        className="w-full text-xs font-mono bg-white border border-slate-200 rounded-lg px-2.5 py-2 hover:border-slate-305 transition focus:ring-1 focus:outline-none"
+                        style={{ '--tw-ring-color': localSettings.themeColor } as React.CSSProperties}
                         placeholder="https://example.com/logo.png"
                       />
                     </div>
@@ -2647,7 +2713,7 @@ export default function PersonnelManager({
             <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-200/60 space-y-4">
               <h5 className="text-[11px] font-extrabold text-slate-700 uppercase tracking-widest border-b border-slate-200/50 pb-2 flex items-center gap-1.5">
                 <Activity className="w-3.5 h-3.5 text-slate-500" />
-                Màu sắt & Thiết lập Hình nền
+                Màu sắc & Thiết lập Hình nền
               </h5>
 
               <div className="space-y-4">
@@ -2656,14 +2722,14 @@ export default function PersonnelManager({
                 <div className="space-y-1.5">
                   <div className="flex justify-between items-center">
                     <label className="text-[9.5px] font-extrabold text-slate-500 uppercase block">Màu sắc chủ đạo y tế:</label>
-                    <span className="text-[9.5px] font-mono font-bold text-slate-550 uppercase bg-slate-100 border border-slate-200 px-1 rounded">{systemSettings.themeColor}</span>
+                    <span className="text-[9.5px] font-mono font-bold text-slate-550 uppercase bg-slate-100 border border-slate-200 px-1 rounded">{localSettings.themeColor}</span>
                   </div>
                   <div className="flex flex-wrap gap-2 py-1">
                     {[
-                      { hex: '#4f46e5', name: 'Indigo y đức' },
-                      { hex: '#10b981', name: 'Emerald lục bảo' },
+                      { hex: '#0284c7', name: 'Sky hòa bình (Khuyên dùng y tế)' },
                       { hex: '#0d9488', name: 'Teal dịu mát' },
-                      { hex: '#0284c7', name: 'Sky hòa bình' },
+                      { hex: '#10b981', name: 'Emerald lục bảo' },
+                      { hex: '#4f46e5', name: 'Indigo y đức' },
                       { hex: '#7c3aed', name: 'Violet tinh anh' },
                       { hex: '#d97706', name: 'Amber nhiệt thành' },
                       { hex: '#e11d48', name: 'Rose sưởi ấm' },
@@ -2672,60 +2738,216 @@ export default function PersonnelManager({
                       <button
                         key={color.hex}
                         type="button"
-                        onClick={() => onUpdateSettings?.({ themeColor: color.hex })}
+                        onClick={() => setLocalSettings((prev: any) => ({ ...prev, themeColor: color.hex }))}
                         className={`w-6 h-6 rounded-full border flex items-center justify-center transition cursor-pointer relative shadow-4xs ${
-                          systemSettings.themeColor === color.hex
+                          localSettings.themeColor === color.hex
                             ? 'scale-110 border-slate-900 ring-2 ring-slate-350 z-10'
                             : 'border-white hover:scale-105'
                         }`}
                         style={{ backgroundColor: color.hex }}
                         title={color.name}
                       >
-                        {systemSettings.themeColor === color.hex && (
+                        {localSettings.themeColor === color.hex && (
                           <Check className="w-3.5 h-3.5 text-white stroke-2 dropdown-glow" />
                         )}
                       </button>
                     ))}
-                    {/* Custom Picker placeholder */}
+                    {/* Custom Picker */}
                     <div className="relative flex items-center">
                       <input 
                         type="color" 
-                        value={systemSettings.themeColor} 
-                        onChange={(e) => onUpdateSettings?.({ themeColor: e.target.value })}
-                        className="w-6 h-6 rounded-full border-2 border-white cursor-pointer hover:scale-105 shadow-4xs opacity-0 absolute inset-0 text-[0px]"
+                        value={localSettings.themeColor || '#0284c7'} 
+                        onChange={(e) => setLocalSettings((prev: any) => ({ ...prev, themeColor: e.target.value }))}
+                        className="w-6 h-6 rounded-full border border-white cursor-pointer hover:scale-105 shadow-4xs opacity-0 absolute inset-0 text-[0px] z-20"
                       />
-                      <div className="w-6 h-6 rounded-full border border-slate-320 flex items-center justify-center bg-white text-[10px] hover:bg-slate-100 pointer-events-none tracking-tight font-black">+</div>
+                      <div className="w-6 h-6 rounded-full border border-slate-300 flex items-center justify-center bg-white text-[10px] hover:bg-slate-100 pointer-events-none tracking-tight font-black">+</div>
                     </div>
                   </div>
                 </div>
 
                 {/* 2. Banner presets */}
-                <div className="space-y-1.5">
-                  <label className="text-[9.5px] font-extrabold text-slate-500 uppercase block">Phong cách Banner chào mừng:</label>
-                  <div className="grid grid-cols-5 gap-1 text-center">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-extrabold text-slate-500 uppercase block tracking-wider">Phong cách Banner chào mừng:</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                     {[
-                      { key: 'default', label: 'Tối cổ điển' },
-                      { key: 'medical', label: 'Y tế nhẹ' },
-                      { key: 'modern', label: 'Sáng đại' },
-                      { key: 'geometric', label: 'Kỹ thuật' },
-                      { key: 'custom', label: 'Ảnh Link' },
-                    ].map((bPreset) => (
-                      <button
-                        key={bPreset.key}
-                        type="button"
-                        onClick={() => onUpdateSettings?.({ bannerPreset: bPreset.key })}
-                        className={`py-1 text-[9px] rounded-lg border font-bold tracking-tight cursor-pointer select-none ${
-                          systemSettings.bannerPreset === bPreset.key
-                            ? 'bg-rose-50 border-rose-220 text-rose-700 shadow-4xs'
-                            : 'bg-white border-slate-200 text-slate-550 hover:bg-slate-100'
-                        }`}
-                      >
-                        {bPreset.label}
-                      </button>
-                    ))}
+                      { 
+                        key: 'medical', 
+                        label: 'Lâm Sàng Vital',
+                        previewClass: 'bg-gradient-to-br from-sky-600 via-teal-600 to-emerald-700',
+                        badge: 'Y đức',
+                        desc: 'Sóng điện tim & Chữ thập',
+                        icon: (
+                          <svg className="absolute inset-y-0 right-0 w-full h-full opacity-30 pointer-events-none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40" preserveAspectRatio="none">
+                            <path d="M 0,20 L 30,20 L 33,12 L 36,28 L 39,20 L 50,20 L 53,8 L 56,32 L 59,20 L 100,20" fill="none" stroke="#ffffff" strokeWidth="1.2" />
+                          </svg>
+                        )
+                      },
+                      { 
+                        key: 'modern', 
+                        label: 'Y Học MedTech',
+                        previewClass: 'bg-gradient-to-br from-[#090a15] via-[#101432] to-[#1a2566]',
+                        badge: 'Số hóa',
+                        desc: 'DNA & Vi điểm sinh học',
+                        icon: (
+                          <div className="absolute right-1 inset-y-0 w-12 flex items-center justify-center opacity-30">
+                            <svg className="w-8 h-8 text-white animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+                            </svg>
+                          </div>
+                        )
+                      },
+                      { 
+                        key: 'geometric', 
+                        label: 'Ban Mai Sáng',
+                        previewClass: 'bg-gradient-to-br from-emerald-400 via-teal-500 to-sky-500',
+                        badge: 'Sáng sủa',
+                        desc: 'Sóng lượn & Ánh dương',
+                        icon: (
+                          <div className="absolute inset-0 opacity-[0.15]" style={{ backgroundImage: 'radial-gradient(circle, white 10%, transparent 10%)', backgroundSize: '10px 10px' }} />
+                        )
+                      },
+                      { 
+                        key: 'default', 
+                        label: 'Đêm Obsidian',
+                        previewClass: 'bg-gradient-to-br from-[#020617] via-[#0b1329] to-[#1e293b]',
+                        badge: 'Mắt dịu',
+                        desc: 'Radar & Lưới tinh vân',
+                        icon: (
+                          <div className="absolute inset-0 opacity-[0.08]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px)', backgroundSize: '6px 6px' }} />
+                        )
+                      },
+                      { 
+                        key: 'pediatric', 
+                        label: 'Nhi Khoa Thân Thiện',
+                        previewClass: 'bg-gradient-to-br from-rose-500 via-orange-400 to-amber-400',
+                        badge: 'Ấm áp',
+                        desc: 'Bong bóng & Trái tim ấm',
+                        icon: (
+                          <div className="absolute inset-0 flex items-center justify-center opacity-30 pointer-events-none">
+                            <span className="w-3 h-3 rounded-full bg-rose-200 blur-3xs absolute -translate-x-3 -translate-y-1 animate-ping" />
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-200 blur-3xs absolute translate-x-3 translate-y-2 animate-pulse" />
+                            <span className="w-2 h-2 rounded-full bg-orange-200 blur-3xs absolute translate-x-1 -translate-y-3 animate-ping" style={{ animationDuration: '3s' }} />
+                          </div>
+                        )
+                      },
+                      { 
+                        key: 'radiology', 
+                        label: 'Quang Phổ X-Ray',
+                        previewClass: 'bg-gradient-to-br from-indigo-950 via-slate-900 to-cyan-900',
+                        badge: 'Quang học',
+                        desc: 'Tia quét & Sóng điện từ',
+                        icon: (
+                          <div className="absolute inset-0 flex flex-col justify-between p-2 opacity-30">
+                            <div className="w-full h-[1px] bg-cyan-300 animate-pulse" />
+                            <div className="w-full h-[1px] bg-cyan-300 opacity-60" />
+                            <div className="w-full h-[1px] bg-cyan-300 opacity-30" />
+                          </div>
+                        )
+                      },
+                      { 
+                        key: 'herbal', 
+                        label: 'Đông Y Cổ Truyền',
+                        previewClass: 'bg-gradient-to-br from-emerald-800 via-emerald-950 to-stone-900',
+                        badge: 'Tự nhiên',
+                        desc: 'Y học cổ truyền & Cân bằng',
+                        icon: (
+                          <div className="absolute inset-0 opacity-[0.25] flex items-center justify-center">
+                            <svg className="w-6 h-6 text-emerald-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+                            </svg>
+                          </div>
+                        )
+                      },
+                      { 
+                        key: 'sunset', 
+                        label: 'Hoàng Hôn Ấm Áp',
+                        previewClass: 'bg-gradient-to-br from-violet-950 via-red-700 to-amber-500',
+                        badge: 'Ấm áp',
+                        desc: 'Tia nắng hy vọng & Chu kỳ phục hồi',
+                        icon: (
+                          <div className="absolute inset-0 opacity-[0.2] flex items-center justify-center">
+                            <svg className="w-6 h-6 text-amber-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <circle cx="12" cy="12" r="9" />
+                              <line x1="12" y1="3" x2="12" y2="21" strokeDasharray="2 2" strokeWidth="1.5" />
+                            </svg>
+                          </div>
+                        )
+                      },
+                      { 
+                        key: 'aurora', 
+                        label: 'Cực Quang Bắc Cực',
+                        previewClass: 'bg-gradient-to-br from-slate-950 via-teal-900 to-emerald-500',
+                        badge: 'Tinh anh',
+                        desc: 'Cực quang xanh lá & Tinh vân vũ trụ',
+                        icon: (
+                          <div className="absolute inset-0 opacity-[0.25] flex items-center justify-center">
+                            <svg className="w-6 h-6 text-teal-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path d="M4 15 Q 8 10, 12 15 T 20 15" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </div>
+                        )
+                      },
+                      { 
+                        key: 'neon', 
+                        label: 'Quang Lộ Cyberpunk',
+                        previewClass: 'bg-gradient-to-br from-zinc-950 via-zinc-800 to-purple-900',
+                        badge: 'Công nghệ',
+                        desc: 'Mạch điện tử & Laser quét nhịp tim',
+                        icon: (
+                          <div className="absolute inset-0 opacity-[0.25] flex flex-col justify-center p-2">
+                            <div className="w-full h-[2px] bg-rose-500" />
+                          </div>
+                        )
+                      },
+                      { 
+                        key: 'custom', 
+                        label: 'Ảnh Ban Khoa',
+                        previewClass: 'bg-slate-50 border border-dashed border-slate-300 text-slate-400',
+                        badge: 'Tự chọn',
+                        desc: 'Tải ảnh tập thể khoa',
+                        icon: (
+                          <ImageIcon className="w-5 h-5 text-slate-400" />
+                        )
+                      },
+                    ].map((bPreset) => {
+                      const isSelected = localSettings.bannerPreset === bPreset.key;
+                      return (
+                        <button
+                          key={bPreset.key}
+                          type="button"
+                          onClick={() => setLocalSettings((prev: any) => ({ ...prev, bannerPreset: bPreset.key }))}
+                          className={`group rounded-xl border p-2 bg-white text-left transition-all duration-300 cursor-pointer flex flex-col justify-between h-28 relative overflow-hidden select-none ${
+                            isSelected
+                              ? 'shadow-sm translate-y-[-2px]'
+                              : 'border-slate-200 hover:border-slate-305 hover:shadow-2xs'
+                          }`}
+                          style={isSelected ? { borderColor: localSettings.themeColor } : {}}
+                        >
+                          {/* Mini Visual Preview Block */}
+                          <div 
+                            className={`w-full h-12 rounded-lg relative overflow-hidden flex items-center justify-center ${bPreset.previewClass}`}
+                            style={bPreset.key === 'custom' && localSettings.bannerUrl ? { backgroundImage: `url(${localSettings.bannerUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}
+                          >
+                            {bPreset.icon}
+                            <span className="absolute top-1 left-1 px-1 py-0.5 rounded text-[8px] font-black uppercase text-white bg-black/30 backdrop-blur-3xs">{bPreset.badge}</span>
+                            {isSelected && (
+                              <div className="absolute top-1 right-1 rounded-full p-0.5" style={{ backgroundColor: localSettings.themeColor }}>
+                                <Check className="w-2.5 h-2.5 text-white stroke-[3]" />
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Content Label */}
+                          <div className="mt-2 space-y-0.5">
+                            <span className="text-[10px] font-bold text-slate-800 block leading-tight">{bPreset.label}</span>
+                            <span className="text-[8px] text-slate-400 font-semibold block leading-normal line-clamp-1 group-hover:text-slate-500">{bPreset.desc}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
 
-                  {systemSettings.bannerPreset === 'custom' && (
+                  {localSettings.bannerPreset === 'custom' && (
                     <div className="space-y-3 animate-fade-in border-t border-slate-200/50 pt-3">
                       <label className="text-[10px] font-extrabold text-slate-600 uppercase block">Ảnh banner tùy chỉnh:</label>
                       
@@ -2734,11 +2956,8 @@ export default function PersonnelManager({
                         onDragOver={handleBannerDragOver}
                         onDragLeave={handleBannerDragLeave}
                         onDrop={handleBannerDrop}
-                        className={`border-2 border-dashed rounded-xl p-4 text-center transition-all ${
-                          isDraggingBanner 
-                            ? 'border-rose-500 bg-rose-50/30 shadow-xs' 
-                            : 'border-slate-200 bg-white hover:border-slate-300'
-                        }`}
+                        className="border-2 border-dashed rounded-xl p-4 text-center transition-all bg-white hover:border-slate-300"
+                        style={{ borderColor: isDraggingBanner ? localSettings.themeColor : '#e2e8f0' }}
                       >
                         <input
                           type="file"
@@ -2753,21 +2972,21 @@ export default function PersonnelManager({
                           className="cursor-pointer flex flex-col items-center justify-center space-y-2 group"
                         >
                           {bannerUploading ? (
-                            <div className="w-8 h-8 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
-                          ) : systemSettings.bannerUrl ? (
+                            <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: localSettings.themeColor }} />
+                          ) : localSettings.bannerUrl ? (
                             <div className="relative max-w-full flex justify-center">
                               <img 
-                                src={systemSettings.bannerUrl} 
+                                src={localSettings.bannerUrl} 
                                 alt="Custom Banner" 
                                 className="max-h-24 max-w-full object-contain rounded border border-slate-100 shadow-2xs p-1"
                                 referrerPolicy="no-referrer"
                               />
                               <div className="absolute -bottom-1 -right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-3xs">
-                                <Check className="w-3 h-3 font-black" />
+                                <Check className="w-3.5 h-3.5 font-black" />
                               </div>
                             </div>
                           ) : (
-                            <UploadCloud className="w-8 h-8 text-slate-400 group-hover:text-rose-500 transition-colors" />
+                            <UploadCloud className="w-8 h-8 text-slate-400 group-hover:text-slate-600 transition-colors" />
                           )}
                           <div className="text-xs font-semibold text-slate-700">
                             {bannerUploading 
@@ -2778,6 +2997,28 @@ export default function PersonnelManager({
                           </div>
                           <p className="text-[10px] text-slate-400 font-semibold">Hỗ trợ PNG, JPG, WEBP, SVG (Tối đa 5MB)</p>
                         </label>
+                      </div>
+
+                      {/* Banner Ratio & Sizing Guide */}
+                      <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs text-slate-600 space-y-2">
+                        <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                          <Info className="w-4 h-4 text-sky-500 shrink-0" />
+                          <span>Hướng dẫn chọn ảnh Banner tối ưu</span>
+                        </div>
+                        <ul className="list-disc pl-4 space-y-1 text-[11px] leading-relaxed">
+                          <li>
+                            <strong className="text-slate-700">Tỷ lệ khuyên dùng:</strong> Tốt nhất là tỷ lệ siêu rộng (panoramic) như <strong className="text-slate-800">4:1</strong> hoặc <strong className="text-slate-800">16:4</strong> (Kích thước khuyên dùng: <strong className="text-slate-800">1200 x 300px</strong> hoặc <strong className="text-slate-800">1600 x 400px</strong>).
+                          </li>
+                          <li>
+                            <strong className="text-slate-700">Bố cục ảnh:</strong> Nên chọn ảnh có các chi tiết chính nằm ở bên phải hoặc trung tâm. Góc trái nên là các mảng tối hoặc ít chi tiết để không làm che khuất thông tin tiêu đề/nút của bảng điều khiển.
+                          </li>
+                          <li>
+                            <strong className="text-slate-700">Độ tương phản:</strong> Sau khi tải lên, bạn nên điều chỉnh <strong className="text-slate-800">Độ mờ lớp phủ tối</strong> phía dưới (ví dụ 60% - 80%) để chữ màu trắng hiển thị sắc nét nhất trên nền ảnh.
+                          </li>
+                          <li>
+                            <strong className="text-slate-700">Mẹo hiển thị:</strong> Nếu ảnh bị cắt mất phần quan trọng, hãy thử đổi vị trí căn chỉnh (<strong className="text-slate-800">Căn chỉnh vị trí</strong>) sang Trên cùng hoặc Dưới cùng, hoặc chuyển Sizing Mode sang <strong className="text-slate-800">Chứa trong (Contain)</strong>.
+                          </li>
+                        </ul>
                       </div>
 
                       {/* Status notifications */}
@@ -2797,11 +3038,12 @@ export default function PersonnelManager({
                       <div className="space-y-1">
                         <div className="flex justify-between items-center">
                           <label className="text-[9px] font-extrabold text-slate-400 uppercase block">Hoặc đường dẫn ảnh banner (URL):</label>
-                          {systemSettings.bannerUrl && (
+                          {localSettings.bannerUrl && (
                             <button
                               type="button"
-                              onClick={() => onUpdateSettings?.({ bannerUrl: '' })}
-                              className="text-[9.5px] font-bold text-rose-600 hover:underline cursor-pointer"
+                              onClick={() => setLocalSettings((prev: any) => ({ ...prev, bannerUrl: '' }))}
+                              className="text-[9.5px] font-bold hover:underline cursor-pointer"
+                              style={{ color: localSettings.themeColor }}
                             >
                               Xóa ảnh hiện tại
                             </button>
@@ -2809,42 +3051,208 @@ export default function PersonnelManager({
                         </div>
                         <input
                           type="text"
-                          value={systemSettings.bannerUrl || ''}
-                          onChange={(e) => onUpdateSettings?.({ bannerUrl: e.target.value })}
-                          className="w-full text-xs font-mono bg-white border border-slate-200 rounded-lg px-2.5 py-2 hover:border-slate-305 transition focus:ring-1 focus:ring-rose-500 focus:outline-none"
+                          value={localSettings.bannerUrl || ''}
+                          onChange={(e) => setLocalSettings((prev: any) => ({ ...prev, bannerUrl: e.target.value }))}
+                          className="w-full text-xs font-mono bg-white border border-slate-200 rounded-lg px-2.5 py-2 hover:border-slate-305 transition focus:ring-1 focus:outline-none"
+                          style={{ '--tw-ring-color': localSettings.themeColor } as React.CSSProperties}
                           placeholder="https://example.com/banner-hospital.jpg"
                         />
+                      </div>
+
+                      {/* Advanced Banner Display Controls */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                        {/* Display Sizing Mode */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-extrabold text-slate-500 uppercase block">Kích thước hiển thị (Size):</label>
+                          <select
+                            value={localSettings.bannerStyle || 'cover'}
+                            onChange={(e) => setLocalSettings((prev: any) => ({ ...prev, bannerStyle: e.target.value }))}
+                            className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none cursor-pointer"
+                          >
+                            <option value="cover">Phủ đầy (Cover - Khuyên dùng)</option>
+                            <option value="contain">Chứa trong (Contain - Trọn vẹn ảnh)</option>
+                            <option value="fill">Kéo giãn (Stretch/Fill - Đầy khung)</option>
+                            <option value="auto">Gốc (Auto - Tỷ lệ thực)</option>
+                          </select>
+                        </div>
+
+                        {/* Alignment Position */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-extrabold text-slate-500 uppercase block">Căn chỉnh vị trí (Position):</label>
+                          <select
+                            value={localSettings.bannerPosition || 'center'}
+                            onChange={(e) => setLocalSettings((prev: any) => ({ ...prev, bannerPosition: e.target.value }))}
+                            className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none cursor-pointer"
+                          >
+                            <option value="center">Giữa (Center)</option>
+                            <option value="top">Trên cùng (Top)</option>
+                            <option value="bottom">Dưới cùng (Bottom)</option>
+                          </select>
+                        </div>
+
+                        {/* Repeat Mode */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-extrabold text-slate-500 uppercase block">Lặp lại hình ảnh (Repeat):</label>
+                          <select
+                            value={localSettings.bannerRepeat || 'no-repeat'}
+                            onChange={(e) => setLocalSettings((prev: any) => ({ ...prev, bannerRepeat: e.target.value }))}
+                            className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none cursor-pointer"
+                          >
+                            <option value="no-repeat">Không lặp lại (No Repeat)</option>
+                            <option value="repeat">Lặp lại (Repeat)</option>
+                          </select>
+                        </div>
+
+                        {/* Dark Overlay Opacity Slider */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[10px] font-extrabold text-slate-500 uppercase block">Độ mờ lớp phủ tối:</label>
+                            <span className="text-[10px] font-bold text-slate-600">{Math.round((localSettings.bannerOverlayOpacity ?? 0.7) * 100)}%</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="range"
+                              min="0"
+                              max="0.95"
+                              step="0.05"
+                              value={localSettings.bannerOverlayOpacity ?? 0.7}
+                              onChange={(e) => setLocalSettings((prev: any) => ({ ...prev, bannerOverlayOpacity: parseFloat(e.target.value) }))}
+                              className="w-full accent-slate-700 h-1 bg-slate-200 rounded-lg cursor-pointer"
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
                 </div>
 
                 {/* 3. Site-Wide Background Style */}
-                <div className="space-y-1.5">
-                  <label className="text-[9.5px] font-extrabold text-slate-500 uppercase block">Chọn Hình nền ứng dụng:</label>
-                  <div className="grid grid-cols-4 gap-1">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-extrabold text-slate-500 uppercase block tracking-wider">Chọn Hình nền ứng dụng:</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {[
-                      { key: 'default', label: 'Mục Slate' },
-                      { key: 'elegant', label: 'Y đức ấm' },
-                      { key: 'clean-mint', label: 'Bạc hà dịu' },
-                      { key: 'warm-wood', label: 'Gỗ nhạt' },
-                      { key: 'modern-blue', label: 'Biển buổi sáng' },
-                      { key: 'soft-slate', label: 'Đá lạnh' },
-                      { key: 'cyberpunk', label: 'Đen Obsidian' },
-                    ].map((bgStyleItem) => (
-                      <button
-                        key={bgStyleItem.key}
-                        type="button"
-                        onClick={() => onUpdateSettings?.({ bgStyle: bgStyleItem.key })}
-                        className={`py-1 bg-white border rounded text-[9.5px] font-bold tracking-tight cursor-pointer select-none transition ${
-                          systemSettings.bgStyle === bgStyleItem.key
-                            ? 'border-slate-700 text-slate-900 shadow-3xs font-black ring-1 ring-slate-800'
-                            : 'border-slate-200 text-slate-550 hover:bg-slate-100'
-                        }`}
-                      >
-                        {bgStyleItem.label}
-                      </button>
-                    ))}
+                      { 
+                        key: 'default', 
+                        label: 'Mục Slate', 
+                        desc: 'Sáng dịu tối giản',
+                        bgColor: '#f8fafc', 
+                        cardBg: '#ffffff', 
+                        accentColor: '#64748b',
+                        textColor: '#0f172a'
+                      },
+                      { 
+                        key: 'elegant', 
+                        label: 'Y đức ấm', 
+                        desc: 'Cổ điển hoàng gia',
+                        bgColor: '#fffdfb', 
+                        cardBg: '#fdfbf7', 
+                        accentColor: '#c5a880',
+                        textColor: '#292524'
+                      },
+                      { 
+                        key: 'clean-mint', 
+                        label: 'Bạc hà dịu', 
+                        desc: 'Xanh thanh mát y học',
+                        bgColor: '#f2faf5', 
+                        cardBg: '#ffffff', 
+                        accentColor: '#10b981',
+                        textColor: '#064e3b'
+                      },
+                      { 
+                        key: 'warm-wood', 
+                        label: 'Gỗ nhạt', 
+                        desc: 'Ấm áp & Tin cậy',
+                        bgColor: '#fffcf6', 
+                        cardBg: '#faf4eb', 
+                        accentColor: '#b45309',
+                        textColor: '#451a03'
+                      },
+                      { 
+                        key: 'modern-blue', 
+                        label: 'Biển buổi sáng', 
+                        desc: 'Hy vọng & Bình an',
+                        bgColor: '#f3f8fc', 
+                        cardBg: '#ffffff', 
+                        accentColor: '#0284c7',
+                        textColor: '#0369a1'
+                      },
+                      { 
+                        key: 'soft-slate', 
+                        label: 'Đá lạnh', 
+                        desc: 'Kim loại sáng sủa',
+                        bgColor: '#f1f5f9', 
+                        cardBg: '#ffffff', 
+                        accentColor: '#475569',
+                        textColor: '#1e293b'
+                      },
+                      { 
+                        key: 'cyberpunk', 
+                        label: 'Đen Obsidian', 
+                        desc: 'Chế độ tối dịu mắt',
+                        bgColor: '#10121d', 
+                        cardBg: '#181b2a', 
+                        accentColor: '#e11d48',
+                        textColor: '#f8fafc'
+                      },
+                    ].map((bgStyleItem) => {
+                      const isSelected = localSettings.bgStyle === bgStyleItem.key;
+                      return (
+                        <button
+                          key={bgStyleItem.key}
+                          type="button"
+                          onClick={() => setLocalSettings((prev: any) => ({ ...prev, bgStyle: bgStyleItem.key }))}
+                          className={`group rounded-xl border p-2 bg-white text-left transition-all duration-300 cursor-pointer flex flex-col justify-between h-24 relative overflow-hidden select-none ${
+                            isSelected
+                              ? 'shadow-sm translate-y-[-2px]'
+                              : 'border-slate-200 hover:border-slate-305 hover:shadow-2xs'
+                          }`}
+                          style={isSelected ? { borderColor: localSettings.themeColor } : {}}
+                        >
+                          {/* Mini Mockup Layout Preview */}
+                          <div 
+                            className="w-full h-10 rounded-lg relative overflow-hidden flex flex-col p-1 border border-slate-100 shadow-4xs transition-transform duration-300 group-hover:scale-[1.02]"
+                            style={{ backgroundColor: bgStyleItem.bgColor }}
+                          >
+                            {/* Tiny Header Strip */}
+                            <div 
+                              className="h-1.5 w-full rounded-xs flex items-center justify-between px-1"
+                              style={{ backgroundColor: bgStyleItem.cardBg, borderBottom: `1px solid ${bgStyleItem.accentColor}20` }}
+                            >
+                              <div className="w-4 h-0.5 rounded-2xs" style={{ backgroundColor: bgStyleItem.accentColor }} />
+                              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: bgStyleItem.accentColor }} />
+                            </div>
+                            
+                            {/* Tiny Body Columns */}
+                            <div className="flex-1 flex gap-1 mt-1">
+                              {/* Tiny Sidebar */}
+                              <div className="w-4 h-full rounded-xs" style={{ backgroundColor: `${bgStyleItem.accentColor}15` }} />
+                              
+                              {/* Tiny main card */}
+                              <div 
+                                className="flex-1 h-full rounded-xs p-0.5 flex flex-col gap-0.5"
+                                style={{ backgroundColor: bgStyleItem.cardBg, border: `1px solid ${bgStyleItem.accentColor}10` }}
+                              >
+                                <div className="w-6 h-0.5 rounded-2xs" style={{ backgroundColor: `${bgStyleItem.textColor}40` }} />
+                                <div className="w-4 h-0.5 rounded-2xs" style={{ backgroundColor: `${bgStyleItem.textColor}25` }} />
+                              </div>
+                            </div>
+
+                            {/* Selected Badge */}
+                            {isSelected && (
+                              <div className="absolute right-1 bottom-1 rounded-full p-0.5" style={{ backgroundColor: localSettings.themeColor }}>
+                                <Check className="w-2 h-2 text-white stroke-[3]" />
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Content Label */}
+                          <div className="mt-1.5 space-y-0.5">
+                            <span className="text-[10px] font-bold text-slate-800 block leading-tight">{bgStyleItem.label}</span>
+                            <span className="text-[8px] text-slate-400 font-semibold block leading-normal line-clamp-1 group-hover:text-slate-500">{bgStyleItem.desc}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -2858,14 +3266,36 @@ export default function PersonnelManager({
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Trực quan hóa thiết kế</span>
               <p className="text-[10.5px] text-slate-550 font-semibold">Tất cả thay đổi được lưu trữ an toàn trong Hệ thống Admin và tự động đồng bộ ngay lập tức cho các y bác sĩ trực khoa.</p>
             </div>
-            <button
-              onClick={() => onUpdateSettings?.(systemSettings)}
-              className="px-5 py-2 hover:opacity-95 text-white active:scale-98 font-bold text-[11px] rounded-lg cursor-pointer transition flex items-center gap-1.5 text-center shrink-0 shadow-3xs"
-              style={{ backgroundColor: systemSettings.themeColor || '#4f46e5' }}
-            >
-              <Check className="w-3.5 h-3.5" />
-              Áp Dụng Thiết Kế Mới
-            </button>
+            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  setLocalSettings(systemSettings);
+                  onPreviewSettings?.(null);
+                  setSuccessText("Đã hủy bỏ thay đổi và khôi phục giao diện hiện tại!");
+                  setTimeout(() => setSuccessText(null), 3000);
+                }}
+                className="px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 active:scale-98 font-bold text-[11px] rounded-lg cursor-pointer transition flex items-center gap-1.5 text-center justify-center w-full sm:w-auto"
+              >
+                <X className="w-3.5 h-3.5 text-slate-400" />
+                Hủy & Khôi Phục
+              </button>
+              <button
+                onClick={() => {
+                  if (localSettings) {
+                    onUpdateSettings?.(localSettings);
+                    onPreviewSettings?.(null);
+                    setSuccessText("Đã áp dụng và lưu cấu hình giao diện mới thành công!");
+                    setTimeout(() => setSuccessText(null), 4000);
+                  }
+                }}
+                className="px-5 py-2 hover:opacity-95 text-white active:scale-98 font-bold text-[11px] rounded-lg cursor-pointer transition flex items-center gap-1.5 text-center justify-center shrink-0 shadow-3xs w-full sm:w-auto"
+                style={{ backgroundColor: localSettings.themeColor || '#4f46e5' }}
+              >
+                <Check className="w-3.5 h-3.5" />
+                Áp Dụng Thiết Kế Mới
+              </button>
+            </div>
           </div>
         </div>
       )}

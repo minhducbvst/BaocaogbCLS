@@ -89,7 +89,7 @@ export interface PrintSettings {
 
 export interface SystemSettings {
   themeColor: string;
-  bannerPreset: 'default' | 'medical' | 'modern' | 'geometric' | 'custom';
+  bannerPreset: 'default' | 'medical' | 'modern' | 'geometric' | 'pediatric' | 'radiology' | 'herbal' | 'sunset' | 'aurora' | 'neon' | 'custom';
   bannerUrl: string;
   logoPreset: 'default' | 'shield' | 'cross' | 'custom';
   logoUrl: string;
@@ -106,6 +106,10 @@ export interface SystemSettings {
   googleClientSecret?: string;
   telegramBotToken?: string;
   telegramChatId?: string;
+  bannerStyle?: 'cover' | 'contain' | 'auto' | 'fill';
+  bannerPosition?: 'center' | 'top' | 'bottom';
+  bannerOverlayOpacity?: number;
+  bannerRepeat?: 'no-repeat' | 'repeat';
 }
 
 export interface WorkReport {

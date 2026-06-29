@@ -475,12 +475,12 @@ let serverProcedures = [
 ];
 
 let systemSettings = {
-  themeColor: "#4f46e5", // Indigo làm mặc định
-  bannerPreset: "default",
+  themeColor: "#0284c7", // Sky blue làm mặc định y tế
+  bannerPreset: "medical",
   bannerUrl: "",
   logoPreset: "default",
   logoUrl: "",
-  bgStyle: "clean-mint",
+  bgStyle: "modern-blue",
   systemTitle: "Giao Ban Khoa Cận Lâm Sàng",
   systemSubtitle: "Hệ thống báo cáo số liệu & Tự động hóa biên bản giao ban bằng AI",
   autoSyncEnabled: false,
@@ -492,7 +492,11 @@ let systemSettings = {
   googleClientId: "1067215171120-g7a7fge4vbe050m3oabm896v1k6g6m2f.apps.googleusercontent.com",
   googleClientSecret: "",
   telegramBotToken: "",
-  telegramChatId: ""
+  telegramChatId: "",
+  bannerStyle: "cover",
+  bannerPosition: "center",
+  bannerOverlayOpacity: 0.7,
+  bannerRepeat: "no-repeat"
 };
 
 let workReports = [
@@ -572,6 +576,18 @@ let workReports = [
 
 
 // API Endpoints
+
+// Combined Bootstrap / All Data API to prevent multiple parallel HTTP requests causing 429 rate limit
+app.get("/api/all-data", (req, res) => {
+  res.json({
+    reports: reports,
+    meetings: meetings,
+    notifications: notifications,
+    users: serverUsers,
+    settings: systemSettings,
+    procedures: serverProcedures
+  });
+});
 
 // Settings API
 app.get("/api/settings", (req, res) => {
@@ -3959,6 +3975,18 @@ async function syncAllFromFirebase() {
         ...systemSettings,
         ...syncedSettings
       };
+      
+      // Tự động nâng cấp cấu hình cũ sang giao diện y tế xanh sáng chuyên nghiệp
+      if (systemSettings.themeColor === "#4f46e5") {
+        systemSettings.themeColor = "#0284c7";
+      }
+      if (systemSettings.bgStyle === "clean-mint" || systemSettings.bgStyle === "default") {
+        systemSettings.bgStyle = "modern-blue";
+      }
+      if (systemSettings.bannerPreset === "default") {
+        systemSettings.bannerPreset = "medical";
+      }
+
       // Ensure essential defaults are kept if they became falsy in the DB/local backup
       if (!systemSettings.googleSpreadsheetUrl) {
         systemSettings.googleSpreadsheetUrl = "https://docs.google.com/spreadsheets/d/1n7yQQmninnDTVNtIZqCzUEiAI1jRHSj4VTr7pVs3KMM/edit?usp=sharing";
