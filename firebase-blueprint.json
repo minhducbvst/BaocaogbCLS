@@ -133,8 +133,8 @@
         "status": {
           "type": "string"
         },
-        "birthYear": {
-          "type": "number"
+        "birthDate": {
+          "type": "string"
         },
         "gender": {
           "type": "string"

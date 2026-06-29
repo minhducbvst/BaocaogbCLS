@@ -63,7 +63,7 @@ export interface User {
   status?: string;
   password?: string;
   passwordResetRequested?: boolean;
-  birthYear?: number;
+  birthDate?: string;
   gender?: string;
   qualification?: string;
   degree?: string;

@@ -35,6 +35,26 @@ import {
   Send
 } from 'lucide-react';
 
+const getYearFromBirthDate = (birthDate?: string | number): number | undefined => {
+  if (!birthDate) return undefined;
+  if (typeof birthDate === 'number') return birthDate;
+  const str = String(birthDate).trim();
+  const parts = str.split('/');
+  if (parts.length === 3) {
+    const year = Number(parts[2]);
+    if (!isNaN(year)) return year;
+  }
+  const year = Number(str);
+  if (!isNaN(year) && year > 1900 && year < 2100) return year;
+  return undefined;
+};
+
+const getAgeFromBirthDate = (birthDate?: string | number): number | string => {
+  const year = getYearFromBirthDate(birthDate);
+  if (!year) return '---';
+  return new Date().getFullYear() - year;
+};
+
 interface ServerDepartment {
   id: string;
   name: string;
@@ -65,7 +85,7 @@ interface ServerStaff {
   status: string;
   password?: string;
   passwordResetRequested?: boolean;
-  birthYear?: number;
+  birthDate?: string;
   gender?: string;
   qualification?: string;
   degree?: string;
@@ -533,7 +553,7 @@ export default function PersonnelManager({
   const [staffRole, setStaffRole] = useState<'admin' | 'truongKhoa' | 'phoKhoa' | 'general' | 'nhanVien' | 'sieuAm' | 'noiSoi' | 'xQuang' | 'dienTimLHN' | 'xetNghiem'>('general');
   const [staffStatus, setStaffStatus] = useState('Đang làm việc');
   const [staffShift, setStaffShift] = useState(15);
-  const [staffBirthYear, setStaffBirthYear] = useState<number | ''>('');
+  const [staffBirthDate, setStaffBirthDate] = useState<string>('');
   const [staffGender, setStaffGender] = useState<string>('Nam');
   const [staffQualification, setStaffQualification] = useState<string>('Bác sĩ');
   const [staffDegree, setStaffDegree] = useState<string>('ĐH');
@@ -680,7 +700,7 @@ export default function PersonnelManager({
         let roleColIdx = headers.findIndex((h: string) => h.includes('vai trò') || h.includes('role') || h.includes('chức vụ trực') || h.includes('vai tro'));
         let titleColIdx = headers.findIndex((h: string) => h.includes('chức danh') || h.includes('chức vụ') || h.includes('title'));
         let genderColIdx = headers.findIndex((h: string) => h.includes('giới tính') || h.includes('gender') || h.includes('gioi tinh'));
-        let birthColIdx = headers.findIndex((h: string) => h.includes('năm sinh') || h.includes('birth') || h.includes('nam sinh'));
+        let birthColIdx = headers.findIndex((h: string) => h.includes('năm sinh') || h.includes('ngày sinh') || h.includes('sinh') || h.includes('birth') || h.includes('nam sinh'));
         let qualColIdx = headers.findIndex((h: string) => h.includes('trình độ') || h.includes('chuyên môn') || h.includes('qualification'));
         let degreeColIdx = headers.findIndex((h: string) => h.includes('bằng') || h.includes('học vị') || h.includes('degree'));
         let phoneColIdx = headers.findIndex((h: string) => h.includes('điện thoại') || h.includes('phone') || h.includes('sđt') || h.includes('dien thoai'));
@@ -738,7 +758,15 @@ export default function PersonnelManager({
           
           const title = titleColIdx !== -1 && row[titleColIdx] ? String(row[titleColIdx]).trim() : 'Bác Sĩ Điều Trị';
           const gender = genderColIdx !== -1 && row[genderColIdx] ? String(row[genderColIdx]).trim() : 'Nam';
-          const birthYear = birthColIdx !== -1 && row[birthColIdx] ? Number(row[birthColIdx]) || undefined : undefined;
+          let birthDate: string | undefined = undefined;
+          if (birthColIdx !== -1 && row[birthColIdx]) {
+            const rawBirthVal = String(row[birthColIdx]).trim();
+            if (/^\d{4}$/.test(rawBirthVal)) {
+              birthDate = `01/01/${rawBirthVal}`;
+            } else {
+              birthDate = rawBirthVal;
+            }
+          }
           const qualification = qualColIdx !== -1 && row[qualColIdx] ? String(row[qualColIdx]).trim() : 'Bác sĩ';
           const degree = degreeColIdx !== -1 && row[degreeColIdx] ? String(row[degreeColIdx]).trim() : 'ĐH';
           const phone = phoneColIdx !== -1 && row[phoneColIdx] ? String(row[phoneColIdx]).trim() : '';
@@ -752,7 +780,7 @@ export default function PersonnelManager({
             role,
             title,
             gender,
-            birthYear,
+            birthDate,
             qualification,
             degree,
             phone,
@@ -858,7 +886,7 @@ export default function PersonnelManager({
     setStaffRole('general');
     setStaffStatus('Đang làm việc');
     setStaffShift(12);
-    setStaffBirthYear('');
+    setStaffBirthDate('');
     setStaffGender('Nam');
     setStaffQualification('Bác sĩ');
     setStaffDegree('ĐH');
@@ -897,7 +925,7 @@ export default function PersonnelManager({
         role: staffRole,
         status: staffStatus,
         shiftCount: Number(staffShift) || 0,
-        birthYear: staffBirthYear ? Number(staffBirthYear) : undefined,
+        birthDate: staffBirthDate ? staffBirthDate : undefined,
         gender: staffGender,
         qualification: staffQualification,
         degree: staffDegree,
@@ -940,7 +968,7 @@ export default function PersonnelManager({
     setStaffRole(staff.role);
     setStaffStatus(staff.status);
     setStaffShift(staff.shiftCount);
-    setStaffBirthYear(staff.birthYear || '');
+    setStaffBirthDate(staff.birthDate || '');
     setStaffGender(staff.gender || 'Nam');
     setStaffQualification(staff.qualification || 'Bác sĩ');
     setStaffDegree(staff.degree || 'ĐH');
@@ -1551,12 +1579,23 @@ export default function PersonnelManager({
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase text-slate-500 block">Năm sinh:</label>
+                    <label className="text-[10px] font-black uppercase text-slate-500 block">Ngày sinh (DD/MM/YYYY):</label>
                     <input
-                      type="number"
-                      placeholder="VD: 1985"
-                      value={staffBirthYear}
-                      onChange={(e) => setStaffBirthYear(e.target.value === '' ? '' : Number(e.target.value))}
+                      type="text"
+                      placeholder="VD: 15/08/1985"
+                      value={staffBirthDate}
+                      onChange={(e) => {
+                        let value = e.target.value;
+                        value = value.replace(/[^\d/]/g, '');
+                        // Basic auto-insert slash assist
+                        if (value.length === 2 && !value.includes('/')) {
+                          value += '/';
+                        } else if (value.length === 5 && value.split('/').length === 2) {
+                          value += '/';
+                        }
+                        if (value.length > 10) value = value.substring(0, 10);
+                        setStaffBirthDate(value);
+                      }}
                       className="w-full text-xs bg-slate-50/50 border border-slate-250 focus:border-indigo-500 rounded-lg px-3 py-2 focus:ring-1 focus:ring-indigo-550 focus:bg-white focus:outline-none transition-all font-semibold"
                     />
                   </div>
@@ -1669,8 +1708,7 @@ export default function PersonnelManager({
               </thead>
               <tbody className="divide-y divide-slate-150 text-[11.5px] text-slate-700">
                 {filteredStaff.map((staff, idx) => {
-                  const currentYear = new Date().getFullYear();
-                  const age = staff.birthYear ? (currentYear - staff.birthYear) : '---';
+                  const age = getAgeFromBirthDate(staff.birthDate);
                   const isAdmin = staff.role === 'admin';
                   const isTruongKhoa = staff.role === 'truongKhoa';
                   const isPhoKhoa = staff.role === 'phoKhoa';
@@ -1888,10 +1926,10 @@ export default function PersonnelManager({
                     </div>
 
                     <div className="space-y-1 border-t border-slate-100 dark:border-slate-850 pt-2.5">
-                      <span className="text-[10px] uppercase font-extrabold text-slate-450 dark:text-slate-500 tracking-wider">Năm sinh / Tuổi</span>
+                      <span className="text-[10px] uppercase font-extrabold text-slate-450 dark:text-slate-500 tracking-wider">Ngày sinh / Tuổi</span>
                       <p className="font-bold text-slate-805 dark:text-slate-300 flex items-center gap-1.5">
                         <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                        {viewingStaff.birthYear ? `${viewingStaff.birthYear} (Tuổi: ${new Date().getFullYear() - viewingStaff.birthYear})` : '---'}
+                        {viewingStaff.birthDate ? `${viewingStaff.birthDate} (Tuổi: ${getAgeFromBirthDate(viewingStaff.birthDate)})` : '---'}
                       </p>
                     </div>
 

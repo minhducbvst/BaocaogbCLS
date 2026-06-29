@@ -1,0 +1,17 @@
+{
+  "name": "BS. Lê Minh Tâm",
+  "role": "admin",
+  "title": "Trưởng Khoa",
+  "status": "Đang làm việc",
+  "address": "Đống Đa, Hà Nội",
+  "phone": "0912345678",
+  "degree": "Trên ĐH",
+  "gender": "Nam",
+  "notes": "Trực chỉ huy ban giám khoa.",
+  "shiftCount": 22,
+  "departmentName": "Ban giám khoa & Cận lâm sàng",
+  "id": "u1",
+  "qualification": "Bác sĩ",
+  "email": "tam.leminh@hospital.gov.vn",
+  "birthDate": "15/06/1978"
+}
