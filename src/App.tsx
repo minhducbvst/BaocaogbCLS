@@ -463,6 +463,35 @@ export default function App() {
     }
   };
 
+  const handleReorderProcedures = async (procedureIds: string[]) => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch('/api/procedures/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          procedureIds,
+          actorName: currentUser.name
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.procedures) {
+          setProcedures(data.procedures);
+        }
+        await fetchAllData();
+      } else {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Không thể sắp xếp lại dịch vụ kỹ thuật.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorBanner(err.message || 'Sự cố kết nối mạng.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // Handle Update Theme Settings
   const handleUpdateSettings = async (newSettings: Partial<SystemSettings>) => {
     // 1. Optimistic update (giao diện thay đổi tức thì)
@@ -1499,6 +1528,7 @@ export default function App() {
                 procedures={procedures}
                 onAddProcedure={handleAddProcedure}
                 onDeleteProcedure={handleDeleteProcedure}
+                onReorderProcedures={handleReorderProcedures}
               />
             </div>
           )}

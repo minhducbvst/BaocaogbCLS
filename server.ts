@@ -432,7 +432,7 @@ let serverAuditLogs = [
   { id: 'l2', actor: 'BS. Lê Minh Tâm', action: 'Cập nhật phân bổ trực', details: 'Tăng định mức shiftCount trực tuần cho Siêu âm và Xét nghiệm', timestamp: '2026-03-15T09:15:00Z' },
 ];
 
-let serverProcedures = [
+let serverProcedures: any[] = [
   // Siêu Âm
   { id: 'sieuAm_tim', name: 'Siêu âm tim', category: 'sieuAm' },
   { id: 'sieuAm_mach', name: 'Siêu âm mạch', category: 'sieuAm' },
@@ -870,7 +870,8 @@ app.post("/api/procedures", (req, res) => {
     const newProc = {
       id,
       name: procedure.name,
-      category: procedure.category
+      category: procedure.category,
+      order: serverProcedures.length
     };
     serverProcedures.push(newProc);
     const newLog = {
@@ -885,6 +886,48 @@ app.post("/api/procedures", (req, res) => {
     saveDocument("procedures", id, newProc);
     saveDocument("auditLogs", newLog.id, newLog);
   }
+
+  res.json({ success: true, procedures: serverProcedures });
+});
+
+app.post("/api/procedures/reorder", (req, res) => {
+  const { procedureIds, actorName } = req.body;
+  if (!Array.isArray(procedureIds)) {
+    return res.status(400).json({ error: "Danh sách ID không hợp lệ." });
+  }
+
+  // Update order in memory
+  serverProcedures.forEach(proc => {
+    const idx = procedureIds.indexOf(proc.id);
+    if (idx !== -1) {
+      proc.order = idx;
+    } else {
+      proc.order = 9999; // default to end of list
+    }
+  });
+
+  // Sort serverProcedures
+  serverProcedures.sort((a, b) => {
+    const orderA = a.order !== undefined ? a.order : 9999;
+    const orderB = b.order !== undefined ? b.order : 9999;
+    return orderA - orderB;
+  });
+
+  // Save all procedures to update their order property
+  for (const proc of serverProcedures) {
+    saveDocument("procedures", proc.id, proc);
+  }
+
+  // Add audit log
+  const newLog = {
+    id: "log_" + Date.now(),
+    actor: actorName || "BS. Lê Minh Tâm",
+    action: "Sắp xếp dịch vụ kỹ thuật",
+    details: "Thay đổi thứ tự hiển thị của các dịch vụ kỹ thuật",
+    timestamp: new Date().toISOString()
+  };
+  serverAuditLogs.unshift(newLog);
+  saveDocument("auditLogs", newLog.id, newLog);
 
   res.json({ success: true, procedures: serverProcedures });
 });
@@ -3968,6 +4011,28 @@ async function syncAllFromFirebase() {
     await syncCollection("departments", serverDepartments);
     await syncCollection("auditLogs", serverAuditLogs);
     await syncCollection("procedures", serverProcedures);
+
+    // Assign order to procedures if they don't have it, based on their index
+    let changedProcs = false;
+    serverProcedures.forEach((proc, idx) => {
+      if (proc.order === undefined) {
+        proc.order = idx;
+        changedProcs = true;
+      }
+    });
+
+    // Sort serverProcedures by order
+    serverProcedures.sort((a, b) => {
+      const orderA = a.order !== undefined ? a.order : 9999;
+      const orderB = b.order !== undefined ? b.order : 9999;
+      return orderA - orderB;
+    });
+
+    if (changedProcs) {
+      for (const proc of serverProcedures) {
+        saveDocument("procedures", proc.id, proc);
+      }
+    }
     await syncCollection("workReports", workReports);
 
     const syncedSettings = await syncSettings("settings", "global", systemSettings);

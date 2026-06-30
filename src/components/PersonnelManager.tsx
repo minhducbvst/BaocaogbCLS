@@ -32,7 +32,9 @@ import {
   Briefcase,
   BookOpen,
   Info,
-  Send
+  Send,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 
 const formatBirthDateToDDMMYYYY = (val: any): string | undefined => {
@@ -167,6 +169,7 @@ interface PersonnelManagerProps {
   procedures: any[];
   onAddProcedure: (proc: { name: string; category: string }) => Promise<void>;
   onDeleteProcedure: (id: string) => Promise<void>;
+  onReorderProcedures?: (procedureIds: string[]) => Promise<void>;
 }
 
 export default function PersonnelManager({ 
@@ -178,13 +181,49 @@ export default function PersonnelManager({
   onPreviewSettings,
   procedures,
   onAddProcedure,
-  onDeleteProcedure
+  onDeleteProcedure,
+  onReorderProcedures
 }: PersonnelManagerProps) {
   const [staffList, setStaffList] = useState<ServerStaff[]>([]);
   const [deptList, setDeptList] = useState<ServerDepartment[]>([]);
   const [auditLogs, setAuditLogs] = useState<ServerAuditLog[]>([]);
   
   const [activeSubTab, setActiveSubTab] = useState<'staff' | 'depts' | 'logs' | 'procedures' | 'printSettings' | 'themeSettings' | 'googleSheets'>(initialSubTab as any);
+
+  const handleMoveProcedure = async (procId: string, categoryKey: string, direction: 'up' | 'down') => {
+    if (!onReorderProcedures) return;
+    
+    // 1. Get current procedures of this category
+    const catProcs = procedures.filter(p => p.category === categoryKey);
+    const index = catProcs.findIndex(p => p.id === procId);
+    if (index === -1) return;
+    
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= catProcs.length) return;
+    
+    // 2. Swap items
+    const reorderedCatProcs = [...catProcs];
+    const temp = reorderedCatProcs[index];
+    reorderedCatProcs[index] = reorderedCatProcs[targetIndex];
+    reorderedCatProcs[targetIndex] = temp;
+    
+    // 3. Rebuild the whole list of procedure IDs
+    const newProcedureIds: string[] = [];
+    let catProcIndex = 0;
+    procedures.forEach(p => {
+      if (p.category === categoryKey) {
+        newProcedureIds.push(reorderedCatProcs[catProcIndex++].id);
+      } else {
+        newProcedureIds.push(p.id);
+      }
+    });
+    
+    try {
+      await onReorderProcedures(newProcedureIds);
+    } catch (err: any) {
+      setErrorText(err.message || 'Lỗi sắp xếp lại dịch vụ.');
+    }
+  };
 
   const [localSettings, setLocalSettings] = useState<any>(null);
 
@@ -2379,31 +2418,50 @@ export default function PersonnelManager({
                       {catProcs.length === 0 ? (
                         <p className="text-[10px] text-slate-400 italic">Không có dịch vụ kỹ thuật nào.</p>
                       ) : (
-                        catProcs.map(proc => (
+                        catProcs.map((proc, idx) => (
                           <div key={proc.id} className="flex items-center justify-between gap-2 p-2 bg-white rounded-lg border border-slate-150 text-[11px] text-slate-700 font-semibold shadow-5xs hover:bg-slate-50/40 transition">
                             <span className="truncate flex-1 leading-normal" title={proc.name}>
                               {proc.name}
                             </span>
-                            <button
-                              onClick={() => {
-                                setConfirmModal({
-                                  title: "Xóa Dịch Vụ Kỹ Thuật",
-                                  message: `Bạn có chắc chắn muốn xóa dịch vụ kỹ thuật "${proc.name}"? Số liệu tại các báo cáo đã duyệt sẽ vẫn được lưu danh mục nhưng không thể nhập mới.`,
-                                  onConfirm: async () => {
-                                    try {
-                                      await onDeleteProcedure(proc.id);
-                                      setErrorText(null);
-                                    } catch (err: any) {
-                                      setErrorText(err.message || 'Lỗi xóa dịch vụ');
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button
+                                onClick={() => handleMoveProcedure(proc.id, category.key, 'up')}
+                                disabled={idx === 0}
+                                className={`p-1 rounded transition ${idx === 0 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 cursor-pointer'}`}
+                                title="Di chuyển lên"
+                              >
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleMoveProcedure(proc.id, category.key, 'down')}
+                                disabled={idx === catProcs.length - 1}
+                                className={`p-1 rounded transition ${idx === catProcs.length - 1 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 cursor-pointer'}`}
+                                title="Di chuyển xuống"
+                              >
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </button>
+                              <div className="w-px h-3 bg-slate-200 mx-0.5" />
+                              <button
+                                onClick={() => {
+                                  setConfirmModal({
+                                    title: "Xóa Dịch Vụ Kỹ Thuật",
+                                    message: `Bạn có chắc chắn muốn xóa dịch vụ kỹ thuật "${proc.name}"? Số liệu tại các báo cáo đã duyệt sẽ vẫn được lưu danh mục nhưng không thể nhập mới.`,
+                                    onConfirm: async () => {
+                                      try {
+                                        await onDeleteProcedure(proc.id);
+                                        setErrorText(null);
+                                      } catch (err: any) {
+                                        setErrorText(err.message || 'Lỗi xóa dịch vụ');
+                                      }
                                     }
-                                  }
-                                });
-                              }}
-                              className="text-red-500 hover:text-red-700 px-1.5 py-0.5 rounded hover:bg-red-50 transition cursor-pointer"
-                              title="Xóa dịch vụ kỹ thuật"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                                  });
+                                }}
+                                className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition cursor-pointer"
+                                title="Xóa dịch vụ kỹ thuật"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         ))
                       )}
