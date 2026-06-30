@@ -1081,10 +1081,10 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
           </div>
 
           <div class="report-info">
-            <div class="report-grid">
+            <div class="report-grid" style="grid-template-columns: repeat(${visibleColumns.revenue ? 3 : 2}, 1fr);">
               <div class="info-item">Khoảng báo cáo: <span>Từ ${formattedStartDate} đến ${formattedEndDate}</span></div>
               <div class="info-item">Tổng số ca (Toàn khoa): <span>${currentStats.grandTotal.toLocaleString('vi-VN')} ca</span></div>
-              <div class="info-item">Doanh vụ (Dự thu): <span>${Math.round(currentStats.totalRevenues).toLocaleString('vi-VN')} VNĐ</span></div>
+              ${visibleColumns.revenue ? `<div class="info-item">Doanh vụ (Dự thu): <span>${Math.round(currentStats.totalRevenues).toLocaleString('vi-VN')} VNĐ</span></div>` : ''}
             </div>
             <div style="margin-top: 10px; font-size: 11px; border-top: 1px dashed #cbd5e1; padding-top: 8px; color: #475569;">
               Bộ lọc chuyên môn: <span style="font-weight: bold; color: #0f172a;">${selectedDepartments.includes('all') ? 'Tất cả khoa Cận lâm sàng' : selectedDepartments.join(', ')}</span> 
@@ -1628,15 +1628,6 @@ export default function Dashboard({ reports, procedures }: DashboardProps) {
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
                 <span>Excel</span>
-              </button>
-
-              <button
-                onClick={() => handlePrint('pdf')}
-                title="Tải báo cáo PDF"
-                className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100/80 border border-rose-200 text-rose-700 rounded-lg text-[11px] font-bold shadow-3xs hover:shadow-2xs cursor-pointer transition select-none"
-              >
-                <FileDown className="w-3.5 h-3.5" />
-                <span>PDF</span>
               </button>
 
               <button
