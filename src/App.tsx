@@ -158,10 +158,14 @@ export default function App() {
       if (actualUsers) {
         // Dynamic update of current user roles/name if edited in admin portal
         const latestUser = currentUserRef.current;
-        if (latestUser) {
-          const freshMe = actualUsers.find((u: User) => u.id === latestUser.id);
+        const savedUserId = localStorage.getItem('hospital-logged-in-user-id');
+        const targetUserId = savedUserId || (latestUser ? latestUser.id : null);
+
+        if (targetUserId) {
+          const freshMe = actualUsers.find((u: User) => u.id === targetUserId);
           if (freshMe) {
-            const hasChanged = 
+            const hasChanged = !latestUser ||
+              freshMe.id !== latestUser.id ||
               freshMe.name !== latestUser.name ||
               freshMe.role !== latestUser.role ||
               freshMe.email !== latestUser.email ||
