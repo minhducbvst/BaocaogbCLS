@@ -325,6 +325,52 @@ export default function App() {
     }
   }, [currentUser]);
 
+  // Dynamic update document title and favicon based on effective settings
+  useEffect(() => {
+    if (effectiveSettings) {
+      // 1. Update Document Title dynamically
+      document.title = effectiveSettings.systemTitle || "Giao Ban Khoa Cận Lâm Sàng";
+
+      // 2. Update Favicon dynamically
+      let faviconUrl = "";
+      if (effectiveSettings.logoPreset === 'custom' && effectiveSettings.logoUrl) {
+        faviconUrl = effectiveSettings.logoUrl;
+      } else {
+        // Generate a beautiful theme-colored SVG favicon dynamically
+        const themeColor = effectiveSettings.themeColor || "#0284c7";
+        let svgContent = "";
+        
+        if (effectiveSettings.logoPreset === 'cross') {
+          svgContent = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${themeColor}">
+              <path d="M19 10.5h-5.5V5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v5.5H5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5h5.5V19c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-5.5H19c.83 0 1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5z"/>
+            </svg>
+          `;
+        } else {
+          // Shield or other default logo style
+          svgContent = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${themeColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="${themeColor}20"/>
+              <path d="M12 8v8"/>
+              <path d="M9 12h6"/>
+            </svg>
+          `;
+        }
+        faviconUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svgContent.trim())}`;
+      }
+
+      if (faviconUrl) {
+        let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+        if (!link) {
+          link = document.createElement('link');
+          link.rel = 'icon';
+          document.getElementsByTagName('head')[0].appendChild(link);
+        }
+        link.href = faviconUrl;
+      }
+    }
+  }, [effectiveSettings]);
+
   // Handle Save Report
   const handleSaveReport = async (updatedReport: DailyReport) => {
     setIsSyncing(true);
