@@ -584,6 +584,7 @@ app.get("/api/all-data", (req, res) => {
     meetings: meetings,
     notifications: notifications,
     users: serverUsers,
+    departments: serverDepartments,
     settings: systemSettings,
     procedures: serverProcedures
   });

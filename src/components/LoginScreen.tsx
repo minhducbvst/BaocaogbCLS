@@ -20,9 +20,19 @@ interface LoginScreenProps {
   onLoginSuccess: (user: User) => void;
   initialUser?: User;
   users?: User[];
+  departments?: any[];
 }
 
-export default function LoginScreen({ onLoginSuccess, initialUser, users = USERS }: LoginScreenProps) {
+const DEFAULT_DEPARTMENTS = [
+  { id: 'd1', name: 'Ban giám khoa & Cận lâm sàng', code: 'BGK-CLS', headId: 'u1', headName: 'BS. Lê Minh Tâm', location: 'Tầng 2, Nhà B', phone: '024-3851-1234 (Ext: 101)', description: 'Chỉ đạo chuyên môn, điều động kíp trực và hội chẩn chất lượng toàn khoa cận lâm sàng.' },
+  { id: 'd2', name: 'Phòng Siêu Âm', code: 'SA', headId: 'u2', headName: 'KTV. Nguyễn Văn Hùng', location: 'Phòng 201, Nhà T', phone: '024-3851-1234 (Ext: 102)', description: 'Thực hiện chẩn đoán hình ảnh siêu âm tổng quát, siêu âm mạch, tim mạch, đàn hồi mô và sản phụ khoa.' },
+  { id: 'd3', name: 'Phòng Nội Soi', code: 'NS', headId: 'u3', headName: 'BS. Trần Thị Mai', location: 'Phòng 205, Nhà T', phone: '024-3851-1234 (Ext: 103)', description: 'Thực hiện thủ thuật nội soi tiêu hóa dạ dày, trực tràng, clotest và cắt polyp ống tiêu hóa.' },
+  { id: 'd4', name: 'Phòng X-quang', code: 'XQ', headId: 'u4', headName: 'BS. Hoàng Đức Toàn', location: 'Phòng 102, Nhà T', phone: '024-3851-1230', description: 'Chụp hình X-quang kỹ thuật số thông dụng và chụp cắt lớp vi tính (CT scan) đa lát cắt.' },
+  { id: 'd5', name: 'Phòng Điện Tim & LHN', code: 'DT-LHN', headId: 'u5', headName: 'KTV. Phạm Lê Vy', location: 'Phòng 203, Nhà T', phone: '024-3851-1231', description: 'Ghi điện tâm đồ thường quy và đo chỉ số lưu huyết não phục vụ khám sức khỏe & lâm sàng.' },
+  { id: 'd6', name: 'Khoa Xét Nghiệm', code: 'XN', headId: 'u6', headName: 'BS. Thân Trọng Kha', location: 'Tầng 1, Nhà A', phone: '024-3851-1232', description: 'Sinh hóa, Huyết học, Nước tiểu, Vi sinh, Xét nghiệm Miễn dịch tinh chuẩn cao.' }
+];
+
+export default function LoginScreen({ onLoginSuccess, initialUser, users = USERS, departments = [] }: LoginScreenProps) {
   const [selectedUser, setSelectedUser] = useState<User>(initialUser || users[0] || USERS[0]);
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -85,7 +95,7 @@ export default function LoginScreen({ onLoginSuccess, initialUser, users = USERS
           icon: <Shield className="w-6 h-6 text-indigo-600 animate-pulse" />,
           bgColor: 'bg-indigo-50 border-indigo-200 text-indigo-800',
           hoverColor: 'hover:bg-indigo-100 hover:border-indigo-300',
-          activeBg: 'bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-500 shadow-md ring-2 ring-indigo-505/20',
+          activeBg: 'bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-500 shadow-md ring-2 ring-indigo-550/20',
           badge: 'Trưởng Khoa (Phê duyệt)'
         };
       case 'sieuAm':
@@ -139,7 +149,83 @@ export default function LoginScreen({ onLoginSuccess, initialUser, users = USERS
     }
   };
 
-  const handleSelectUser = (user: User) => {
+  const getDeptCardStyle = (code: string, name: string) => {
+    const lowerCode = (code || '').toLowerCase();
+    const lowerName = (name || '').toLowerCase();
+    
+    if (lowerCode === 'bgk-cls' || lowerName.includes('giám khoa') || lowerName.includes('admin')) {
+      return {
+        icon: <Shield className="w-6 h-6 text-amber-600" />,
+        badge: 'Ban Điều Hành',
+        themeRole: 'admin'
+      };
+    }
+    if (lowerCode === 'sa' || lowerName.includes('siêu âm')) {
+      return {
+        icon: <Activity className="w-6 h-6 text-sky-600 animate-pulse" />,
+        badge: 'Chẩn đoán hình ảnh',
+        themeRole: 'sieuAm'
+      };
+    }
+    if (lowerCode === 'ns' || lowerName.includes('nội soi')) {
+      return {
+        icon: <Eye className="w-6 h-6 text-emerald-600" />,
+        badge: 'Nội soi Tiêu hóa',
+        themeRole: 'noiSoi'
+      };
+    }
+    if (lowerCode === 'xq' || lowerName.includes('x-quang') || lowerName.includes('x quang')) {
+      return {
+        icon: <UserCheck className="w-6 h-6 text-blue-600" />,
+        badge: 'Chẩn đoán hình ảnh',
+        themeRole: 'xQuang'
+      };
+    }
+    if (lowerCode === 'dt-lhn' || lowerName.includes('điện tim') || lowerName.includes('lưu huyết')) {
+      return {
+        icon: <Heart className="w-6 h-6 text-purple-600" />,
+        badge: 'Thăm dò chức năng',
+        themeRole: 'dienTimLHN'
+      };
+    }
+    if (lowerCode === 'xn' || lowerName.includes('xét nghiệm')) {
+      return {
+        icon: <FlaskConical className="w-6 h-6 text-cyan-600 animate-pulse" />,
+        badge: 'Xét nghiệm Y học',
+        themeRole: 'xetNghiem'
+      };
+    }
+    
+    return {
+      icon: <Hospital className="w-6 h-6 text-slate-600" />,
+      badge: 'Phòng chuyên môn',
+      themeRole: 'general'
+    };
+  };
+
+  const handleSelectDepartment = (dept: any) => {
+    // Find matching user in the system
+    let user = users.find(u => u.id === dept.headId);
+    if (!user) {
+      user = users.find(u => u.name === dept.headName && u.departmentName === dept.name);
+    }
+    if (!user) {
+      user = users.find(u => u.departmentName === dept.name);
+    }
+    
+    // Fallback if no user is found for this department
+    if (!user) {
+      const isLeaderDept = (dept.code || '').toLowerCase() === 'bgk-cls' || (dept.name || '').toLowerCase().includes('giám khoa') || (dept.name || '').toLowerCase().includes('admin');
+      user = {
+        id: `dept_user_${dept.id}`,
+        name: dept.headName || `Trưởng khoa/phòng`,
+        role: isLeaderDept ? 'admin' : 'general',
+        email: `${(dept.code || 'general').toLowerCase()}@hospital.gov.vn`,
+        departmentName: dept.name,
+        title: 'Trưởng bộ phận',
+      };
+    }
+    
     setSelectedUser(user);
     if (user.password) {
       setTargetUserForLogin(user);
@@ -152,6 +238,44 @@ export default function LoginScreen({ onLoginSuccess, initialUser, users = USERS
       onLoginSuccess(user);
     }
   };
+
+  const getDeptRole = (dept: any): string => {
+    // Find matching user in the system
+    let user = users.find(u => u.id === dept.headId);
+    if (!user) {
+      user = users.find(u => u.name === dept.headName && u.departmentName === dept.name);
+    }
+    if (!user) {
+      user = users.find(u => u.departmentName === dept.name);
+    }
+    if (user) {
+      return user.role;
+    }
+    // Fallback
+    const isLeaderDept = (dept.code || '').toLowerCase() === 'bgk-cls' || 
+                         (dept.name || '').toLowerCase().includes('giám khoa') || 
+                         (dept.name || '').toLowerCase().includes('admin');
+    if (isLeaderDept) return 'admin';
+    return 'general';
+  };
+
+  const deptListToRender = departments && departments.length > 0 ? departments : DEFAULT_DEPARTMENTS;
+  const sortedDepts = [...deptListToRender].sort((a, b) => {
+    const roleA = getDeptRole(a);
+    const roleB = getDeptRole(b);
+
+    if (roleA === roleB) return 0;
+
+    // "truongKhoa" role goes to the top (first)
+    if (roleA === 'truongKhoa') return -1;
+    if (roleB === 'truongKhoa') return 1;
+
+    // "admin" role goes to the bottom (last)
+    if (roleA === 'admin') return 1;
+    if (roleB === 'admin') return -1;
+
+    return 0;
+  });
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 font-sans antialiased flex flex-col items-center justify-center p-4 sm:p-6 md:p-8">
@@ -220,48 +344,41 @@ export default function LoginScreen({ onLoginSuccess, initialUser, users = USERS
 
             {/* Department grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
-              {[...users]
-                .sort((a, b) => {
-                  if (a.role === 'admin' && b.role !== 'admin') return 1;
-                  if (a.role !== 'admin' && b.role === 'admin') return -1;
-                  return 0;
-                })
-                .map((user) => {
-                  const isSelected = selectedUser.id === user.id;
-                  const { icon, hoverColor, badge, activeBg } = getDeptIconAndStyle(user.role);
+              {sortedDepts.map((dept) => {
+                const { icon, badge } = getDeptCardStyle(dept.code, dept.name);
 
-                  return (
-                    <button
-                      key={user.id}
-                      id={`login-dept-card-${user.id}`}
-                      onClick={() => handleSelectUser(user)}
-                      className="border border-slate-200 bg-white hover:bg-slate-50 hover:border-indigo-400 hover:shadow-md active:scale-[0.99] rounded-xl p-3.5 cursor-pointer transition-all duration-200 flex flex-col items-start text-left gap-2.5 select-none w-full"
-                    >
-                      <div className="flex items-center gap-3 w-full min-w-0">
-                        <div className="shrink-0 p-2 bg-slate-50 rounded-lg border border-slate-200 shadow-2xs">
-                          {icon}
-                        </div>
-                        <div className="flex-1 min-w-0 space-y-0.5">
-                          <span className="text-[9px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wide inline-block">
-                            {badge}
-                          </span>
-                          <h4 className="text-sm font-extrabold text-slate-900 tracking-tight leading-snug truncate">{user.departmentName}</h4>
-                        </div>
+                return (
+                  <button
+                    key={dept.id}
+                    id={`login-dept-card-${dept.id}`}
+                    onClick={() => handleSelectDepartment(dept)}
+                    className="border border-slate-200 bg-white hover:bg-slate-50 hover:border-indigo-400 hover:shadow-md active:scale-[0.99] rounded-xl p-3.5 cursor-pointer transition-all duration-200 flex flex-col items-start text-left gap-2.5 select-none w-full"
+                  >
+                    <div className="flex items-center gap-3 w-full min-w-0">
+                      <div className="shrink-0 p-2 bg-slate-50 rounded-lg border border-slate-200 shadow-2xs">
+                        {icon}
                       </div>
-                      
-                      <div className="w-full pt-2 border-t border-slate-100 flex items-center justify-between gap-2 overflow-hidden mt-0.5">
-                        <span className="text-[11px] text-slate-700 font-extrabold truncate">
-                          {user.name}
+                      <div className="flex-1 min-w-0 space-y-0.5">
+                        <span className="text-[9px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wide inline-block">
+                          {badge}
                         </span>
-                        {user.title && (
-                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider font-sans shrink-0">
-                            {user.title}
-                          </span>
-                        )}
+                        <h4 className="text-sm font-extrabold text-slate-900 tracking-tight leading-snug truncate">{dept.name}</h4>
                       </div>
-                    </button>
-                  );
-                })}
+                    </div>
+                    
+                    <div className="w-full pt-2 border-t border-slate-100 flex items-center justify-between gap-2 overflow-hidden mt-0.5">
+                      <span className="text-[11px] text-slate-700 font-extrabold truncate">
+                        {dept.headName || 'Chưa chỉ định Trưởng khoa/phòng'}
+                      </span>
+                      {dept.location && (
+                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider font-sans shrink-0">
+                          {dept.location}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

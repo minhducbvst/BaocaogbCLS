@@ -69,6 +69,7 @@ export default function App() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [procedures, setProcedures] = useState<any[]>(TEMPLATE_ITEMS);
+  const [departments, setDepartments] = useState<any[]>([]);
   
   const [systemSettings, setSystemSettings] = useState<SystemSettings>({
     themeColor: "#0284c7",
@@ -135,6 +136,7 @@ export default function App() {
       const meetingsData = data.meetings;
       const notificationsData = data.notifications as AppNotification[] | undefined;
       const usersData = data.users;
+      const departmentsData = data.departments;
       const settingsData = data.settings;
       const proceduresData = data.procedures;
 
@@ -143,6 +145,7 @@ export default function App() {
       if (meetingsData !== undefined) setMeetings(meetingsData);
       if (notificationsData !== undefined) setNotifications(notificationsData);
       if (usersData !== undefined) setUsers(usersData);
+      if (departmentsData !== undefined) setDepartments(departmentsData);
       if (proceduresData !== undefined) setProcedures(proceduresData);
       if (settingsData !== undefined) setSystemSettings(settingsData);
 
@@ -667,7 +670,7 @@ export default function App() {
 
   if (!isLoggedIn) {
     return (
-      <LoginScreen onLoginSuccess={handleLoginSuccess} initialUser={currentUser} users={users} />
+      <LoginScreen onLoginSuccess={handleLoginSuccess} initialUser={currentUser} users={users} departments={departments} />
     );
   }
 
