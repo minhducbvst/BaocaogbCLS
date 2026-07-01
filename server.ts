@@ -3737,7 +3737,8 @@ async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?:
     });
 
     const existingIdx = reports.findIndex(r => r.date === targetDateStr);
-    let finalReport: any;
+    let finalReport: any = null;
+    let apiResult: any = null;
 
     if (existingIdx !== -1) {
       if (!forceOverwrite) {
@@ -3814,7 +3815,8 @@ async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?:
           notifications.push(newNotification);
           saveDocument("notifications", notifId, newNotification);
 
-          return { success: true, date: targetDateStr, merged: true, details: "Đã tự động bổ sung số liệu vào các ô trống." };
+          finalReport = reports[existingIdx];
+          apiResult = { success: true, date: targetDateStr, merged: true, details: "Đã tự động bổ sung số liệu vào các ô trống." };
         } else {
           console.log(`[Auto-Sync] Báo cáo ngày ${targetDateStr} đã tồn tại và không có dữ liệu mới để bổ sung. Bỏ qua.`);
           
@@ -3843,19 +3845,47 @@ async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?:
           notifications.push(newNotification);
           saveDocument("notifications", notifId, newNotification);
 
-          return { success: true, date: targetDateStr, skipped: true, reason: "Báo cáo đã đầy đủ, bỏ qua theo cấu hình an toàn." };
+          finalReport = existingReport;
+          apiResult = { success: true, date: targetDateStr, skipped: true, reason: "Báo cáo đã đầy đủ, bỏ qua theo cấu hình an toàn." };
         }
-      }
+      } else {
+        reports[existingIdx] = {
+          ...reports[existingIdx],
+          items: parsedItems,
+          status: "approved",
+          approvedBy: "Hệ thống (Đồng bộ Tự động 12h)",
+          submittedAt: new Date().toISOString()
+        };
+        finalReport = reports[existingIdx];
+        saveDocument("reports", targetDateStr, finalReport);
 
-      reports[existingIdx] = {
-        ...reports[existingIdx],
-        items: parsedItems,
-        status: "approved",
-        approvedBy: "Hệ thống (Đồng bộ Tự động 12h)",
-        submittedAt: new Date().toISOString()
-      };
-      finalReport = reports[existingIdx];
-      saveDocument("reports", targetDateStr, finalReport);
+        // Add Audit Log for overwrite
+        const logId = "log_auto_overwrite_" + Date.now();
+        const newLog = {
+          id: logId,
+          actor: "Hệ thống tự động",
+          action: "Đồng bộ tự động",
+          details: `Đồng bộ dữ liệu báo cáo ngày ${targetDateStr} từ Google Sheets thành công (Ghi đè hoàn toàn).`,
+          timestamp: new Date().toISOString()
+        };
+        serverAuditLogs.unshift(newLog);
+        saveDocument("auditLogs", logId, newLog);
+
+        // Add Notification for overwrite
+        const notifId = "notif_auto_overwrite_" + Date.now();
+        const newNotification = {
+          id: notifId,
+          title: "Đồng bộ tự động ghi đè hoàn tất 🕒",
+          content: `Dữ liệu ngày ${targetDateStr} đã được ghi đè từ Google Sheets và gửi báo cáo Telegram thành công.`,
+          timestamp: new Date().toISOString(),
+          type: "success",
+          read: false
+        };
+        notifications.push(newNotification);
+        saveDocument("notifications", notifId, newNotification);
+
+        apiResult = { success: true, date: targetDateStr, report: finalReport };
+      }
     } else {
       finalReport = {
         date: targetDateStr,
@@ -3867,36 +3897,38 @@ async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?:
       };
       reports.push(finalReport);
       saveDocument("reports", targetDateStr, finalReport);
+
+      // Add Audit Log
+      const logId = "log_auto_" + Date.now();
+      const newLog = {
+        id: logId,
+        actor: "Hệ thống tự động",
+        action: "Đồng bộ tự động",
+        details: `Đồng bộ dữ liệu báo cáo ngày ${targetDateStr} từ Google Sheets thành công.`,
+        timestamp: new Date().toISOString()
+      };
+      serverAuditLogs.unshift(newLog);
+      saveDocument("auditLogs", logId, newLog);
+
+      // Add Notification
+      const notifId = "notif_auto_" + Date.now();
+      const newNotification = {
+        id: notifId,
+        title: "Đồng bộ tự động hoàn tất 🕒",
+        content: `Dữ liệu ngày ${targetDateStr} đã được đồng bộ từ Google Sheets và gửi báo cáo Telegram thành công.`,
+        timestamp: new Date().toISOString(),
+        type: "success",
+        read: false
+      };
+      notifications.push(newNotification);
+      saveDocument("notifications", notifId, newNotification);
+
+      apiResult = { success: true, date: targetDateStr, report: finalReport };
     }
 
-    // Add Audit Log
-    const logId = "log_auto_" + Date.now();
-    const newLog = {
-      id: logId,
-      actor: "Hệ thống tự động",
-      action: "Đồng bộ tự động",
-      details: `Đồng bộ dữ liệu báo cáo ngày ${targetDateStr} từ Google Sheets thành công.`,
-      timestamp: new Date().toISOString()
-    };
-    serverAuditLogs.unshift(newLog);
-    saveDocument("auditLogs", logId, newLog);
-
-    // Add Notification
-    const notifId = "notif_auto_" + Date.now();
-    const newNotification = {
-      id: notifId,
-      title: "Đồng bộ tự động hoàn tất 🕒",
-      content: `Dữ liệu ngày ${targetDateStr} đã được đồng bộ từ Google Sheets và gửi báo cáo Telegram thành công.`,
-      timestamp: new Date().toISOString(),
-      type: "success",
-      read: false
-    };
-    notifications.push(newNotification);
-    saveDocument("notifications", notifId, newNotification);
-
     // Send Telegram
-    const botToken = settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = settings.telegramChatId || process.env.TELEGRAM_CHAT_ID;
+    const botToken = String(settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN || "").trim();
+    const chatId = String(settings.telegramChatId || process.env.TELEGRAM_CHAT_ID || "").trim();
 
     if (botToken && chatId) {
       console.log(`[Auto-Sync] Đang gửi báo cáo Telegram ngày ${targetDateStr}...`);
@@ -3907,7 +3939,7 @@ async function runAutomatedSyncAndReport(customDateStr?: string, customReferer?:
       console.log("[Auto-Sync] Chưa cấu hình Telegram Bot Token hoặc Chat ID. Bỏ qua gửi báo cáo.");
     }
 
-    return { success: true, date: targetDateStr, report: finalReport };
+    return apiResult || { success: true, date: targetDateStr, report: finalReport };
   } catch (err: any) {
     console.error("[Auto-Sync] Đồng bộ tự động thất bại:", err?.message || err);
 
@@ -4088,6 +4120,38 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Express server running on http://localhost:${PORT}`);
+
+    // STARTUP CONNECTION & SYNC TRIGGER
+    // Always check and perform automated sync and telegram notification on startup if configured
+    const settings = systemSettings as any;
+    if (settings) {
+      const botToken = String(settings.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN || "").trim();
+      const chatId = String(settings.telegramChatId || process.env.TELEGRAM_CHAT_ID || "").trim();
+      
+      if (botToken && chatId) {
+        console.log("[Startup] Telegram settings found. Sending startup connection notification...");
+        const startupMsg = `🚀 <b>HỆ THỐNG GIAO BAN & BÁO CÁO Y KHOA CLINIS</b>\n\n✅ Đã kết nối & khởi động thành công!\n📅 Thời gian: ${new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}\n⚙️ Cấu hình đồng bộ tự động: ${settings.autoSyncEnabled ? "<b>BẬT</b> (Khung giờ " + (settings.autoSyncTime || "12:00") + ")" : "<b>TẮT</b>"}`;
+        
+        sendTelegramMessage(botToken, chatId, startupMsg).then(() => {
+          console.log("[Startup] Telegram startup connection status notification sent successfully.");
+        }).catch((err) => {
+          console.error("[Startup] Failed to send Telegram startup notification:", err?.message || err);
+        });
+      } else {
+        console.log("[Startup] Telegram is not configured in settings. Skipping startup notification.");
+      }
+
+      if (settings.autoSyncEnabled) {
+        console.log("[Startup] Auto-Sync is enabled. Triggering auto-sync & reporting on startup...");
+        runAutomatedSyncAndReport().then((result) => {
+          console.log("[Startup] Auto-sync and reporting finished on startup. Result:", result);
+        }).catch((err) => {
+          console.error("[Startup] Auto-sync and reporting failed on startup:", err);
+        });
+      } else {
+        console.log("[Startup] Auto-Sync is not enabled in settings.");
+      }
+    }
   });
 }
 

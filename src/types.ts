@@ -48,7 +48,7 @@ export interface Notification {
   title: string;
   content: string;
   timestamp: string;
-  type: 'meeting' | 'report' | 'system' | 'alert' | 'task' | 'update';
+  type: 'meeting' | 'report' | 'system' | 'alert' | 'task' | 'update' | 'warning' | 'success' | 'error';
   read: boolean;
 }
 

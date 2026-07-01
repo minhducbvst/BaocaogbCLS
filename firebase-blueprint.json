@@ -95,8 +95,7 @@
           "type": "string"
         },
         "type": {
-          "type": "string",
-          "enum": ["meeting", "report", "system", "alert", "task", "update"]
+          "type": "string"
         },
         "read": {
           "type": "boolean"
